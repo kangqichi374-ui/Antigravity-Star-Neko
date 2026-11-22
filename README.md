@@ -5,7 +5,7 @@ A 53-layer split-sprite catgirl desktop pet for Google Antigravity. Unofficial f
 基于开源项目 [Monokumakuki/Antigravity-Star-Suite](https://github.com/Monokumakuki/Antigravity-Star-Suite)（`star-suite-widget v0.2.14`）深度二次开发的 Windows Electron 桌宠改版：将原版静态单图立绘无损拆分为 **53 层准 Live2D 动态立绘**，新增 **像素级左右耳/呆毛独立按压**、**鼠标侧键双耳控制（零系统钩子）**、**5 种常态耳动波浪**、**AI 工作态星晶薄光边**、**4 套气泡主题**与**伴随 Antigravity 自动启停**。
 
 > **开源与素材权利声明（请务必阅读）**
-> - **软件代码**：继承上游 [LICENSE](app/LICENSE)（MIT License，Copyright (c) 2026 Monokumakuki），本仓库二次开发代码同样遵循 MIT。第三方依赖说明见 [NOTICE.md](app/NOTICE.md)。
+> - **软件代码**：继承上游 [LICENSE](LICENSE)（MIT License，Copyright (c) 2026 Monokumakuki），本仓库二次开发代码同样遵循 MIT。第三方依赖说明见 [NOTICE.md](app/NOTICE.md)。
 > - **美术素材**：详见 [ASSETS.md](app/ASSETS.md)。软件 MIT 许可**不适用于角色立绘图片与第三方标识**；角色设计参考署名 **ZipZipPipe**。角色图层使用已获原作者 Monokumakuki 许可（2026-11-22），仅用于本项目非商用展示与运行，不授予独立再许可。**如任何权利人对图片展示或包含存在异议，请通过本仓库 Issues 联系，将立即下架或调整。**
 > - **音效素材**：本公开版仅保留上游可记录许可的 4 套 CC0 / MIT 安全音色（已移除全部第三方游戏/未验证授权音频）；用户可在设置面板中自行导入本地 `.wav / .mp3 / .ogg / .m4a` 音频。
 
