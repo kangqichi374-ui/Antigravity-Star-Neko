@@ -876,10 +876,27 @@
   }
 
   let pressSeq = 0, pressStartAt = 0, pressReleaseTimer = null;
+  let lastPointerPos = null;
 
-  function syncHitAfterRelease() {
+  function recordPointerPos(e) {
+    if (e && Number.isFinite(e.clientX) && Number.isFinite(e.clientY)) {
+      lastPointerPos = { x: e.clientX, y: e.clientY };
+    }
+  }
+
+  function isPointInteractive(e) {
+    recordPointerPos(e);
+    if (document.querySelector(".interactive:hover")) return true;
+    if (lastPointerPos) {
+      const el = document.elementFromPoint(lastPointerPos.x, lastPointerPos.y);
+      if (el && el.closest(".interactive")) return true;
+    }
+    return false;
+  }
+
+  function syncHitAfterRelease(e = null) {
     if (partPointer || hasSideButtonHeld() || pointer) return;
-    const stillInteractive = Boolean(document.querySelector(".interactive:hover"));
+    const stillInteractive = isPointInteractive(e);
     if (hit !== stillInteractive) {
       hit = stillInteractive;
       api.hit(stillInteractive);
@@ -909,7 +926,7 @@
     play("press");
   }
 
-  function releaseSideButton(btn, cancel = false) {
+  function releaseSideButton(btn, cancel = false, ev = null) {
     const held = sideHeld[btn];
     if (!held) return;
     lastSideEventAt[btn] = performance.now();
@@ -931,15 +948,15 @@
       }
     }
     play("release");
-    syncHitAfterRelease();
+    syncHitAfterRelease(ev);
   }
 
-  function releaseAllSideButtons(cancel = true) {
-    if (sideHeld[3]) releaseSideButton(3, cancel);
-    if (sideHeld[4]) releaseSideButton(4, cancel);
+  function releaseAllSideButtons(cancel = true, ev = null) {
+    if (sideHeld[3]) releaseSideButton(3, cancel, ev);
+    if (sideHeld[4]) releaseSideButton(4, cancel, ev);
   }
 
-  function syncSideButtonsMask(buttons, allowPress = false) {
+  function syncSideButtonsMask(buttons, allowPress = false, ev = null) {
     if (typeof buttons !== "number") return;
     const down3 = (buttons & 8) !== 0;
     const down4 = (buttons & 16) !== 0;
@@ -947,11 +964,11 @@
       if (down3 && !sideHeld[3]) pressSideButton(3);
       if (down4 && !sideHeld[4]) pressSideButton(4);
     }
-    if (sideHeld[3] && !down3) releaseSideButton(3, false);
-    if (sideHeld[4] && !down4) releaseSideButton(4, false);
+    if (sideHeld[3] && !down3) releaseSideButton(3, false, ev);
+    if (sideHeld[4] && !down4) releaseSideButton(4, false, ev);
   }
 
-  function releasePart(cancel = false) {
+  function releasePart(cancel = false, ev = null) {
     if (!partPointer) return;
     const { part, seq, startAt } = partPointer;
     partPointer = null;
@@ -972,31 +989,36 @@
       }
     }
     play("release");
-    syncHitAfterRelease();
+    syncHitAfterRelease(ev);
   }
 
   mascot.addEventListener("pointerdown", e => {
+    recordPointerPos(e);
     const isSide = e.button === 3 || e.button === 4 || (e.buttons & 24) !== 0;
     if (!isSide) return;
-    if (!hasSideButtonHeld() && !e.target.closest(".interactive")) return;
+    const hitTarget = e.target.closest(".interactive");
+    if (!hasSideButtonHeld() && !hitTarget) return;
     if (!pointer && !partPointer) {
-      try { mascot.setPointerCapture(e.pointerId); } catch {}
+      try { (hitTarget || motion).setPointerCapture(e.pointerId); } catch {}
     }
     if (e.button === 3 || e.button === 4) pressSideButton(e.button);
-    syncSideButtonsMask(e.buttons, true);
+    syncSideButtonsMask(e.buttons, true, e);
   });
   mascot.addEventListener("pointermove", e => {
+    recordPointerPos(e);
     if (hasSideButtonHeld() || (e.buttons & 24) !== 0) {
-      syncSideButtonsMask(e.buttons, hasSideButtonHeld() || Boolean(e.target.closest(".interactive")));
+      syncSideButtonsMask(e.buttons, hasSideButtonHeld() || Boolean(e.target.closest(".interactive")), e);
     }
   });
   mascot.addEventListener("pointerup", e => {
-    if (hasSideButtonHeld()) syncSideButtonsMask(e.buttons, false);
+    recordPointerPos(e);
+    if (hasSideButtonHeld()) syncSideButtonsMask(e.buttons, false, e);
   });
-  mascot.addEventListener("pointercancel", () => releaseAllSideButtons(true));
-  mascot.addEventListener("lostpointercapture", () => releaseAllSideButtons(true));
+  mascot.addEventListener("pointercancel", e => releaseAllSideButtons(true, e));
+  mascot.addEventListener("lostpointercapture", e => releaseAllSideButtons(true, e));
 
   window.addEventListener("mousedown", e => {
+    recordPointerPos(e);
     if (e.button !== 3 && e.button !== 4) return;
     if (!hasSideButtonHeld() && !e.target.closest(".interactive")) return;
     e.preventDefault();
@@ -1004,10 +1026,13 @@
   });
 
   window.addEventListener("mouseup", e => {
+    recordPointerPos(e);
     if (e.button !== 3 && e.button !== 4) return;
+    if (sideHeld[e.button] || isPointInteractive(e)) {
+      e.preventDefault();
+    }
     if (!sideHeld[e.button]) return;
-    e.preventDefault();
-    releaseSideButton(e.button, false);
+    releaseSideButton(e.button, false, e);
   });
 
   window.addEventListener("auxclick", e => {
@@ -1107,10 +1132,10 @@
     }
   }
 
-  motion.addEventListener("pointerup", () => { releasePart(); release(); });
-  motion.addEventListener("pointercancel", () => { releasePart(true); release(true); });
-  motion.addEventListener("lostpointercapture", () => { releasePart(true); release(true); });
-  window.addEventListener("blur", () => { releaseAllSideButtons(true); releasePart(true); release(true); });
+  motion.addEventListener("pointerup", e => { releasePart(false, e); release(); });
+  motion.addEventListener("pointercancel", e => { releasePart(true, e); release(true); });
+  motion.addEventListener("lostpointercapture", e => { releasePart(true, e); release(true); });
+  window.addEventListener("blur", () => { lastPointerPos = null; releaseAllSideButtons(true); releasePart(true); release(true); });
 
   motion.addEventListener("keydown", e => {
     if (e.key === " " || e.key === "Enter") {
@@ -1121,7 +1146,8 @@
   });
 
   window.addEventListener("mousemove", e => {
-    if (hasSideButtonHeld()) syncSideButtonsMask(e.buttons);
+    recordPointerPos(e);
+    if (hasSideButtonHeld()) syncSideButtonsMask(e.buttons, false, e);
     const active = Boolean(partPointer) || hasSideButtonHeld() || !!e.target.closest(".interactive");
     if (hit !== active) {
       hit = active;
@@ -1130,6 +1156,7 @@
   });
 
   window.addEventListener("mouseleave", () => {
+    lastPointerPos = null;
     if (partPointer || hasSideButtonHeld()) return;
     hit = false;
     api.hit(false);
