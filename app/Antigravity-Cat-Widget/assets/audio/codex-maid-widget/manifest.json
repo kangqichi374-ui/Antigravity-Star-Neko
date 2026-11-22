@@ -1,0 +1,69 @@
+{
+  "schemaVersion": 1,
+  "sourceProject": "codex-maid-widget",
+  "defaultPreset": "bubble-pop",
+  "defaultEnabled": false,
+  "defaultVolume": 0.35,
+  "presets": [
+    {
+      "id": "bubble-pop",
+      "label": "气泡轻弹",
+      "gain": 0.5,
+      "press": "files/bubble-pop-press.wav",
+      "release": "files/bubble-pop-release.wav"
+    },
+    {
+      "id": "soft-spring",
+      "label": "轻柔弹簧",
+      "gain": 0.5,
+      "press": "files/interaction-press.wav",
+      "release": "files/interaction-release.wav"
+    },
+    {
+      "id": "original",
+      "label": "经典啾啾",
+      "gain": 1.0,
+      "press": "files/original-press.wav",
+      "release": "files/original-release.wav"
+    },
+    {
+      "id": "wood-tap",
+      "label": "木质轻敲",
+      "gain": 0.5,
+      "press": "files/wood-tap-press.wav",
+      "release": "files/wood-tap-release.wav"
+    }
+  ],
+  "eventSounds": [
+    {
+      "id": "bubble-done",
+      "label": "气泡清脆提示音",
+      "gain": 0.75,
+      "file": "files/bubble-pop-release.wav"
+    },
+    {
+      "id": "soft-chime",
+      "label": "柔和回弹提示音",
+      "gain": 0.75,
+      "file": "files/interaction-release.wav"
+    },
+    {
+      "id": "chirp-alert",
+      "label": "经典啾啾提示音",
+      "gain": 0.85,
+      "file": "files/original-release.wav"
+    },
+    {
+      "id": "wood-notify",
+      "label": "木质轻敲提示音",
+      "gain": 0.75,
+      "file": "files/wood-tap-release.wav"
+    },
+    {
+      "id": "release",
+      "label": "跟随当前按压松开音",
+      "gain": 0.8,
+      "file": "@release"
+    }
+  ]
+}

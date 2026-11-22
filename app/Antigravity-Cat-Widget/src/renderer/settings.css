@@ -1,0 +1,148 @@
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+  background: #f7f5fc;
+  color: #35304b;
+  font: 13px/1.6 "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+header {
+  padding: 24px 28px 16px;
+  background: linear-gradient(120deg, #eee8fc, #f9f4fc);
+}
+header p {
+  font-size: 9px;
+  letter-spacing: 2px;
+  color: #8a78ae;
+  margin: 0;
+}
+h1 {
+  font-size: 22px;
+  margin: 6px 0;
+}
+header span {
+  color: #8b809c;
+  font-size: 11px;
+}
+main {
+  padding: 16px 24px 28px;
+}
+section {
+  background: #fff;
+  border: 1px solid #e7e0f1;
+  border-radius: 16px;
+  padding: 16px 20px;
+  margin-bottom: 14px;
+}
+h2 {
+  font-size: 14px;
+  margin: 0 0 10px;
+  color: #463a62;
+}
+label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 34px;
+  color: #6f637e;
+}
+input[type=range] {
+  flex: 1;
+  min-width: 60px;
+  accent-color: #9d85d3;
+}
+input[type=checkbox] {
+  accent-color: #8e74ca;
+  width: 16px;
+  height: 16px;
+}
+input[type=number] {
+  border: 1px solid #ddd4ea;
+  background: #faf8fe;
+  padding: 4px 8px;
+  border-radius: 8px;
+  color: #6b5a82;
+  width: 90px;
+}
+output {
+  font-size: 11px;
+  min-width: 42px;
+  text-align: right;
+}
+select {
+  border: 1px solid #ddd4ea;
+  background: #faf8fe;
+  padding: 5px 10px;
+  border-radius: 8px;
+  color: #6b5a82;
+  max-width: 260px;
+}
+textarea {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid #ddd4ea;
+  background: #faf8fe;
+  padding: 8px 10px;
+  border-radius: 10px;
+  color: #4b3e63;
+  font: 12px/1.5 "Microsoft YaHei UI", "Segoe UI", sans-serif;
+  resize: vertical;
+}
+.sub-group {
+  margin: 8px 0;
+  padding: 10px 12px;
+  background: #fbf9ff;
+  border: 1px solid #ece5f8;
+  border-radius: 12px;
+}
+.sub-title {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #5d4f77;
+  margin-bottom: 4px;
+}
+.check-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px 18px;
+}
+.sep {
+  border: 0;
+  border-top: 1px dashed #e7e0f1;
+  margin: 12px 0;
+}
+.hint {
+  font-size: 10px;
+  color: #978aa5;
+  margin: 7px 0 0;
+}
+button {
+  border: 1px solid #d9cdeb;
+  background: #f5f0fd;
+  color: #756092;
+  border-radius: 9px;
+  padding: 6px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+button:hover {
+  background: #ebe2fb;
+}
+footer, .actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+#saved, #audio-note, #quota-status {
+  font-size: 11px;
+  color: #92839e;
+}
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid #9c80d1;
+  outline-offset: 2px;
+}

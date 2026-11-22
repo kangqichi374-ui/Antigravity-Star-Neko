@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file:; media-src 'self' file:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'">
+  <title>喵言喵语</title>
+  <link rel="stylesheet" href="../../assets/motions/gemini-widget.css">
+  <link rel="stylesheet" href="widget.css">
+</head>
+<body>
+  <main id="widget">
+    <div class="agy-art" id="mascot" data-state="idle" data-theme="crystal">
+      <section class="agy-bubble interactive" id="bubble" role="status" aria-live="polite" hidden>
+        <span class="agy-bubble__dot agy-bubble__dot--sm" aria-hidden="true"></span>
+        <span class="agy-bubble__dot agy-bubble__dot--md" aria-hidden="true"></span>
+        <div class="agy-bubble__card">
+          <div class="agy-bubble__inner" id="bubble-inner">
+            <div class="agy-bubble__title"><span id="title">Gemini 额度</span></div>
+            <div id="quota" class="agy-quota">
+              <div class="quota-label"><span>5 小时</span><strong id="percent">—</strong></div>
+              <div class="agy-quota__track" id="track" role="progressbar" aria-label="Gemini Models 五小时剩余额度" aria-valuemin="0" aria-valuemax="100"><span class="agy-quota__fill" id="fill"></span></div>
+              <div class="quota-label"><span>1 周</span><strong id="percent-week">—</strong></div>
+              <div class="agy-quota__track" id="track-week" role="progressbar" aria-label="Gemini Models 一周剩余额度" aria-valuemin="0" aria-valuemax="100"><span class="agy-quota__fill" id="fill-week"></span></div>
+              <div id="caption" class="agy-quota__caption"></div>
+            </div>
+            <div id="value" class="agy-bubble__value" hidden></div>
+            <div id="detail" hidden></div>
+            <div class="agy-bubble__meta" id="meta"></div>
+          </div>
+        </div>
+      </section>
+      <div class="widget-tools interactive">
+        <button id="settings" aria-label="打开设置" title="定制与设置">
+          <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true">
+            <path d="M2.5 4h11M2.5 8h11M2.5 12h11" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </div>
+      <div class="agy-motion interactive" id="motion" tabindex="0" role="button" aria-label="猫娘，点击切换额度、对话与收起，拖动移动位置">
+        <div class="agy-face">
+          <img class="agy-layer agy-layer--ear-right" id="ear-right" src="../../assets/character-packs/gemini-star-v1/layers/earR_0.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--ear-left" id="ear-left" src="../../assets/character-packs/gemini-star-v1/layers/earL_0.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--ahoge" id="ahoge" src="../../assets/character-packs/gemini-star-v1/layers/ahoge.png" alt="" draggable="false">
+          <img class="agy-frame agy-frame--idle" src="../../assets/character-packs/gemini-star-v1/layers/body-idle.png" alt="Gemini 猫娘" draggable="false">
+          <img class="agy-frame agy-frame--blink" src="../../assets/character-packs/gemini-star-v1/layers/body-blink.png" alt="" draggable="false">
+          <img class="agy-expression agy-expression--proud" src="../../assets/character-packs/gemini-star-v1/layers/body-proud.png" alt="" draggable="false">
+          <img class="agy-expression agy-expression--crying" src="../../assets/character-packs/gemini-star-v1/layers/body-sad.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--part" id="bun-left" src="../../assets/character-packs/gemini-star-v1/layers/bunL_0.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--part" id="bun-right" src="../../assets/character-packs/gemini-star-v1/layers/bunR_0.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--part" id="hair-strand" src="../../assets/character-packs/gemini-star-v1/layers/strand_0.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--blush" id="blush-fx" src="../../assets/character-packs/gemini-star-v1/layers/blush.png" alt="" draggable="false">
+          <img class="agy-layer agy-layer--gem" id="gem-fx" src="../../assets/character-packs/gemini-star-v1/layers/gem_1.png" alt="" draggable="false">
+          <img class="agy-effect agy-effect--thinking" src="../../assets/ui/effects/thinking-dots.svg" alt="">
+          <img class="agy-effect agy-effect--sparkle" src="../../assets/ui/effects/sparkle.svg" alt="">
+          <img class="agy-effect agy-effect--tear" src="../../assets/ui/effects/teardrop.svg" alt="">
+          <img class="agy-effect agy-effect--heart" src="../../assets/ui/effects/heart.svg" alt="">
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="personality.js"></script>
+  <script src="renderer.cjs"></script>
+</body>
+</html>

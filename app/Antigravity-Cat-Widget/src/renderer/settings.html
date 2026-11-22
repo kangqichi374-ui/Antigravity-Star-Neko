@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; media-src 'self' file:; style-src 'self'; script-src 'self'; connect-src 'none'">
+  <title>喵言喵语 · 定制与设置</title>
+  <link rel="stylesheet" href="settings.css">
+</head>
+<body>
+  <header>
+    <p>GEMINI STAR / COMPANION</p>
+    <h1>让陪伴恰到好处。</h1>
+    <span id="source">正在读取状态……</span>
+  </header>
+  <main>
+    <section>
+      <h2>1. 外观与视觉定制</h2>
+      <label>角色大小 <input id="scale" type="range" min="140" max="360" step="10"><output id="scale-value"></output></label>
+      <label>气泡主题配色
+        <select id="bubbleTheme">
+          <option value="crystal">星晶蓝紫（默认）</option>
+          <option value="ocean">经典蓝白（DeepSeek 同款）</option>
+          <option value="sakura">樱粉浅暖</option>
+          <option value="night">星空暗夜</option>
+        </select>
+      </label>
+      <label>角色朝向模式
+        <select id="facingMode">
+          <option value="auto">随位置自动翻转</option>
+          <option value="left">固定朝左</option>
+          <option value="right">固定朝右</option>
+        </select>
+      </label>
+      <label><span>待机自动眨眼动画</span><input id="autoBlink" type="checkbox"></label>
+      <label><span>隐藏右侧悬浮设置按钮（☰）</span><input id="hideHoverTools" type="checkbox"></label>
+      <label><span>贴近边缘时自动吸附</span><input id="snap" type="checkbox"></label>
+      <label><span>减少动态效果</span><input id="reducedMotion" type="checkbox"></label>
+      <label><span>鼠标穿透</span><input id="clickThrough" type="checkbox"></label>
+      <p class="hint">Ctrl+Alt+G 唤回；Ctrl+Alt+Shift+G 关闭穿透。右键角色可随时打开快捷菜单。</p>
+    </section>
+
+    <section>
+      <h2>2. 气泡与自定义台词</h2>
+      <label><span>启用头顶气泡</span><input id="bubbleOn" type="checkbox"></label>
+      <label>气泡自动收起时间
+        <select id="bubbleAutoHideMs">
+          <option value="4000">4 秒</option>
+          <option value="6500">6.5 秒（默认）</option>
+          <option value="12000">12 秒</option>
+          <option value="0">常驻不自动收起</option>
+        </select>
+      </label>
+      <p class="hint">交互逻辑：点击猫娘本体弹出/联动「额度」；点击气泡在「额度」→「对话」→ 收起间切换；左键点击/长按左右耳与呆毛或悬停按鼠标前/后侧键仅控制耳朵/呆毛，不触发对话框。</p>
+      <label><span>新模型步骤完成时弹出气泡提示</span><input id="turnCostOn" type="checkbox"></label>
+      <label>步骤提示停留时间
+        <select id="turnCostDurationMs">
+          <option value="3000">3 秒</option>
+          <option value="5000">5 秒</option>
+          <option value="10000">10 秒</option>
+          <option value="0">直到主动收起</option>
+        </select>
+      </label>
+      <label><span>猫娘彩蛋表情（偶尔得意或委屈）</span><input id="easterEggs" type="checkbox"></label>
+      <div class="actions">
+        <button id="preview-reaction" type="button">看看表情</button>
+      </div>
+      <div class="sub-group">
+        <label>自定义闲聊台词模式
+          <select id="customLinesMode">
+            <option value="append">追加到默认台词库</option>
+            <option value="only">仅使用我的自定义台词</option>
+          </select>
+        </label>
+        <textarea id="customLines" rows="4" placeholder="每行输入一句自定义台词，留空则使用默认台词…"></textarea>
+        <p class="hint">修改后失焦自动保存，点击猫娘切到对话即可看到。</p>
+      </div>
+    </section>
+
+    <section>
+      <h2>3. 状态联动与音效定制</h2>
+      <label><span>启用点击/交互音效</span><input id="sound" type="checkbox"></label>
+      <label>点击音色预设
+        <select id="soundSet"></select>
+      </label>
+      <label>点击音量 <input id="volume" type="range" min="0" max="100"><output id="volume-value"></output></label>
+      <div class="actions">
+        <button id="audition" type="button">试听按压/松开</button>
+        <button id="import-audio" type="button">导入本地音效文件…</button>
+        <span id="audio-note">默认静音</span>
+      </div>
+
+      <hr class="sep">
+
+      <label><span>AI 步骤完成提示音</span><input id="turnDoneSound" type="checkbox"></label>
+      <label>完成提示音色
+        <select id="turnDoneSoundId"></select>
+      </label>
+      <label>完成提示音量 <input id="turnDoneVolume" type="range" min="0" max="100"><output id="turnDoneVolume-value"></output></label>
+      <div class="actions">
+        <button id="audition-done" type="button">试听完成音</button>
+      </div>
+
+      <hr class="sep">
+
+      <label><span>AI 等待确认/提问时弹出气泡提醒</span><input id="waitingAlertOn" type="checkbox"></label>
+      <label><span>AI 等待确认/提问提示音</span><input id="waitingSound" type="checkbox"></label>
+      <label>等待提醒音色
+        <select id="waitingSoundId"></select>
+      </label>
+      <label>等待提醒音量 <input id="waitingVolume" type="range" min="0" max="100"><output id="waitingVolume-value"></output></label>
+      <div class="actions">
+        <button id="audition-waiting" type="button">试听等待提醒音</button>
+      </div>
+    </section>
+
+    <section>
+      <h2>4. 鼠标滚轮定制</h2>
+      <label>鼠标滚轮动作
+        <select id="wheelAction">
+          <option value="page">在额度与对话间切换</option>
+          <option value="scale">直接缩放角色大小</option>
+          <option value="none">关闭滚轮动作</option>
+        </select>
+      </label>
+    </section>
+
+    <section>
+      <h2>5. 手动额度记录</h2>
+      <label><span>显示手动记录</span><input id="manualQuota" type="checkbox"></label>
+      <label>5 小时剩余 % <input id="manualPercent" type="number" min="0" max="100" step="1"></label>
+      <label>1 周剩余 % <input id="manualWeeklyPercent" type="number" min="0" max="100" step="1"></label>
+      <p class="hint">可自行填写两个周期的剩余比例，气泡明确标记“手动记录”。</p>
+    </section>
+
+    <p id="quota-status" role="status"></p>
+    <footer>
+      <button id="dock-left" type="button">左下角</button>
+      <button id="dock-right" type="button">右下角</button>
+      <button id="reset" type="button">重置位置</button>
+      <button id="quota-refresh" type="button">读取宿主额度</button>
+      <button id="refresh" type="button">重新扫描日志</button>
+      <button id="undo" type="button" title="恢复本次打开面板前的设置">撤回本次调整</button>
+      <span id="saved" role="status"></span>
+    </footer>
+  </main>
+  <script src="settings.cjs"></script>
+</body>
+</html>

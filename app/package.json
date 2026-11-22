@@ -1,0 +1,16 @@
+{
+  "name": "star-suite-widget",
+  "version": "0.3.0",
+  "description": "Antigravity Star Catgirl Desktop Widget (53-layer interactive fork)",
+  "main": "Antigravity-Cat-Widget/src/main/index.cjs",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "electron .",
+    "build-native": "powershell -ExecutionPolicy Bypass -File ../编译原生助手.ps1"
+  },
+  "devDependencies": {
+    "electron": "^45.1.0"
+  }
+}
