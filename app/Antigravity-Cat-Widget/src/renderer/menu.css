@@ -14,7 +14,7 @@
     radial-gradient(circle at 14% 8%, rgba(246, 218, 255, 0.92) 0%, transparent 40%),
     radial-gradient(circle at 88% 90%, rgba(214, 226, 255, 0.92) 0%, transparent 45%),
     linear-gradient(165deg, #fdfbfffa 0%, #f4eefffa 54%, #ecebfffa 100%);
-  --ctx-shadow: inset 0 1.5px 0 #ffffff, 0 8px 22px rgba(68, 46, 136, 0.24), 0 0 0 1px rgba(255, 255, 255, 0.45);
+  --ctx-shadow: inset 0 1.5px 0 #ffffff;
   --ctx-sep: rgba(154, 128, 232, 0.34);
   --ctx-brand: linear-gradient(110deg, #5d68e3, #8f56d4, #dc6ebc);
   --ctx-star: #a97cf0;
@@ -41,7 +41,7 @@ html[data-theme="sakura"] {
   --ctx-bg:
     radial-gradient(circle at 16% 10%, rgba(255, 226, 240, 0.95) 0%, transparent 42%),
     linear-gradient(165deg, #fffdfefa 0%, #fef0f6fa 56%, #fde6f0fa 100%);
-  --ctx-shadow: inset 0 1.5px 0 #ffffff, 0 8px 22px rgba(136, 44, 86, 0.20), 0 0 0 1px rgba(255, 255, 255, 0.5);
+  --ctx-shadow: inset 0 1.5px 0 #ffffff;
   --ctx-sep: rgba(232, 142, 182, 0.36);
   --ctx-brand: linear-gradient(110deg, #d84b80, #cf4696, #ea786c);
   --ctx-star: #ea78ab;
@@ -66,7 +66,7 @@ html[data-theme="ocean"] {
   --ctx-sub: #7489bd;
   --ctx-border: #253a7b;
   --ctx-bg: linear-gradient(180deg, #fffffffa 0%, #f6f9fffa 100%);
-  --ctx-shadow: inset 0 1px 0 #ffffff, 0 8px 22px rgba(28, 46, 108, 0.20);
+  --ctx-shadow: inset 0 1px 0 #ffffff;
   --ctx-sep: rgba(53, 84, 162, 0.24);
   --ctx-brand: linear-gradient(110deg, #253a7b, #3d68c4);
   --ctx-star: #3b63b8;
@@ -93,7 +93,7 @@ html[data-theme="night"] {
   --ctx-bg:
     radial-gradient(circle at 18% 12%, rgba(86, 62, 156, 0.55) 0%, transparent 44%),
     linear-gradient(165deg, #1f1a36fa 0%, #272145fa 56%, #1b1730fa 100%);
-  --ctx-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14), 0 10px 26px rgba(8, 5, 20, 0.58);
+  --ctx-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.14);
   --ctx-sep: rgba(146, 124, 226, 0.28);
   --ctx-brand: linear-gradient(110deg, #a2b2ff, #d7a1ff, #ffaae5);
   --ctx-star: #c5a3ff;
@@ -136,6 +136,7 @@ html, body {
   padding: 9px 10px 10px;
   border: 2px solid var(--ctx-border);
   background: var(--ctx-bg);
+  background-clip: padding-box;
   box-shadow: var(--ctx-shadow);
   display: flex;
   flex-direction: column;
@@ -159,9 +160,22 @@ html, body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 8px 6px;
+  padding: 5px 8px 6px;
   margin-bottom: 1px;
+  border-radius: 10px 10px 4px 4px;
   border-bottom: 1px solid var(--ctx-sep);
+  cursor: grab;
+  user-select: none;
+  touch-action: none;
+  transition: background 140ms ease;
+}
+
+.ctx-header:hover {
+  background: var(--ctx-hover);
+}
+
+.ctx-header[data-dragging="true"] {
+  cursor: grabbing;
 }
 
 .ctx-brand {

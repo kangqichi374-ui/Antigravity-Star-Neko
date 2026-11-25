@@ -7,12 +7,13 @@ const { TranscriptAdapter } = require("../adapters/transcript-adapter.cjs");
 const { AudioManager } = require("../domain/audio-manager.cjs");
 const { HostQuotaAdapter } = require("../adapters/host-quota.cjs");
 const { HostWorkingAdapter } = require("../adapters/host-working.cjs");
-const { ForegroundMonitor, hostPlacement, characterPlacement, snapToEdges, hasNativeHelper } = require("../domain/host-visibility.cjs");
+const { ForegroundMonitor, hostPlacement, characterPlacement, snapToEdges, contextMenuPlacement, hasNativeHelper } = require("../domain/host-visibility.cjs");
 const { sharedHost } = require("../../../shared/host.cjs");
 
 const dataDir = process.argv.find(a => a.startsWith("--data-dir="))?.slice(11) || path.join(os.homedir(), ".antigravity-cat-widget");
 app.setPath("userData", path.join(dataDir, "runtime"));
 app.setName("Star Neko Widget");
+if (process.platform === "win32") app.setAppUserModelId("com.antigravity.starneko.widget");
 const earlySettings = new SettingsManager(path.join(dataDir, "settings.json"));
 const isCompatRender =
   process.argv.includes("--software-render") ||
@@ -35,7 +36,7 @@ else {
   const recoveryLog = reason => {
     try { require("node:fs").appendFileSync(path.join(dataDir, "recovery.log"), new Date().toISOString() + " " + reason + "\n"); } catch {}
   };
-  let win, tray = null, contextMenu = null, ctxWin = null, ctxIdleTimer = null, panel, drag = null, hoverInteractive = false, source = { online: false, source: "正在读取本机日志", files: 0 }, saveTimer, displayScale = null, hostArea = null, hostLayout = null, dragTimer = null, facing = "right", dockSide = "", artShift = 0, lastSentVisible = null;
+  let win, tray = null, contextMenu = null, ctxWin = null, ctxIdleTimer = null, ctxDrag = null, panel, drag = null, hoverInteractive = false, source = { online: false, source: "正在读取本机日志", files: 0 }, saveTimer, displayScale = null, hostArea = null, hostLayout = null, dragTimer = null, facing = "right", dockSide = "", artShift = 0, lastSentVisible = null;
   const foreground = new ForegroundMonitor(), quotaAdapter = new HostQuotaAdapter({ cachePath: path.join(dataDir, "quota-cache.json") }), workingAdapter = new HostWorkingAdapter();
   const dialogue = require("../../assets/dialogue/zh-CN.json");
   const running = new Set();
@@ -298,13 +299,13 @@ else {
       "waitingAlertOn", "waitingSound", "waitingSoundId", "waitingVolume",
       "clickAction", "doubleClickAction", "wheelAction"
     ];
-    const oldScale = settings.get("scale"), oldHostOnly = settings.get("hostWindowOnly"), oldCompat = settings.get("compatMode");
+    const oldScale = settings.get("scale"), oldHostOnly = settings.get("hostWindowOnly");
     if (!oldHostOnly && partial?.hostWindowOnly === true && win) {
       const pos = win.getBounds();
       settings.update({ x: pos.x, y: pos.y });
     }
     settings.update(Object.fromEntries(Object.entries(partial || {}).filter(([k]) => allowed.includes(k))));
-    if (settings.get("compatMode") !== oldCompat) {
+    if (partial && "compatMode" in partial && settings.get("compatMode") !== isCompatRender) {
       setTimeout(() => relaunchSelf(), 60);
       return snapshot();
     }
@@ -356,7 +357,10 @@ else {
     panel.on("closed", () => panel = null);
   }
 
+  const CTX_W = 264, CTX_H = 472;
+
   function closeContextMenu() {
+    ctxDrag = null;
     if (!ctxWin || ctxWin.isDestroyed()) return;
     if (ctxWin.isVisible()) ctxWin.hide();
     clearTimeout(ctxIdleTimer);
@@ -370,15 +374,30 @@ else {
     if (typeof ctxIdleTimer.unref === "function") ctxIdleTimer.unref();
   }
 
-  function openContextMenu() {
+  function openContextMenu(opts = {}) {
     clearTimeout(ctxIdleTimer);
-    const CTX_W = 264, CTX_H = 472;
+    ctxDrag = null;
     const pt = screen.getCursorScreenPoint();
     const area = screen.getDisplayNearestPoint(pt).workArea;
-    const rawX = (pt.x + CTX_W > area.x + area.width) ? (pt.x - CTX_W + 20) : (pt.x - 12);
-    const rawY = (pt.y + CTX_H > area.y + area.height) ? (pt.y - CTX_H + 20) : (pt.y - 12);
-    const x = Math.round(Math.max(area.x + 4, Math.min(area.x + area.width - CTX_W - 4, rawX)));
-    const y = Math.round(Math.max(area.y + 4, Math.min(area.y + area.height - CTX_H - 4, rawY)));
+    let charRect = null;
+    if (!opts.nearCursor && win && !win.isDestroyed() && win.isVisible()) {
+      const wb = win.getBounds();
+      const size = displayScale || settings.get("scale");
+      const charH = Math.round(size * 1146 / 1372);
+      charRect = {
+        x: Math.round(wb.x + (wb.width - size) / 2 + artShift),
+        y: Math.round(wb.y + wb.height - charH),
+        width: size,
+        height: charH
+      };
+    }
+    const { x, y } = contextMenuPlacement(
+      area,
+      { width: CTX_W, height: CTX_H, pad: 12 },
+      charRect,
+      pt,
+      { nearCursor: Boolean(opts.nearCursor), preferSide: dockSide }
+    );
 
     if (ctxWin && !ctxWin.isDestroyed()) {
       ctxWin.setBounds({ x, y, width: CTX_W, height: CTX_H });
@@ -394,7 +413,7 @@ else {
       transparent: true,
       hasShadow: false,
       resizable: false,
-      movable: false,
+      movable: true,
       minimizable: false,
       maximizable: false,
       skipTaskbar: true,
@@ -417,8 +436,14 @@ else {
         if (panel && !panel.isDestroyed()) publish();
       }
     });
-    ctxWin.on("blur", () => closeContextMenu());
-    ctxWin.on("closed", () => { clearTimeout(ctxIdleTimer); ctxWin = null; });
+    ctxWin.on("blur", () => {
+      if (ctxDrag) {
+        ctxDrag.blurred = true;
+        return;
+      }
+      closeContextMenu();
+    });
+    ctxWin.on("closed", () => { clearTimeout(ctxIdleTimer); ctxDrag = null; ctxWin = null; });
   }
 
   function reset() {
@@ -500,7 +525,7 @@ else {
       { label: "星语猫娘 · 桌宠", enabled: false },
       { label: "定制与设置面板…", click: openSettings },
       { label: "开启实时额度", click: () => { enableLiveQuota().catch(() => {}); } },
-      { label: "摸摸头", click: () => sm.handlePetting() },
+      { label: "摸摸头", click: () => { if (sm.handlePetting(true)) send("widget:petted", { source: "menu" }); } },
       { type: "separator" },
       { label: "显示气泡", type: "checkbox", checked: settings.get("bubbleOn"), click: () => apply({ bubbleOn: !settings.get("bubbleOn") }) },
       {
@@ -632,7 +657,9 @@ else {
     else if (command === "dock-right") dock("right");
     else if (command === "show-bubble") apply({ bubbleOn: true });
     else if (command === "preview-reaction") send("widget:reaction", {});
-    else if (command === "pet") sm.handlePetting();
+    else if (command === "pet") {
+      if (sm.handlePetting(true)) send("widget:petted", { source: "menu" });
+    }
     else if (command === "quota-refresh") quotaAdapter.openNativeQuota().catch(() => {});
     else if (command === "refresh") { adapter.scan(); quotaAdapter.tick(); publish(); }
   });
@@ -657,6 +684,33 @@ else {
     if (!trusted(e) || !drag || !win) return;
     if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && Math.abs(raw.x) < 100000 && Math.abs(raw.y) < 100000) {
       dragMove({ x: raw.x, y: raw.y });
+    }
+  });
+
+  ipcMain.on("widget:menu-drag", (e, raw) => {
+    if (!trusted(e) || !ctxWin || ctxWin.isDestroyed()) return;
+    const action = raw?.action;
+    if (action === "end") {
+      const wasBlurred = Boolean(ctxDrag?.blurred);
+      ctxDrag = null;
+      if (wasBlurred && ctxWin && !ctxWin.isDestroyed() && !ctxWin.isFocused()) {
+        closeContextMenu();
+      }
+      return;
+    }
+    const pt = raw?.point;
+    if (!pt || !Number.isFinite(pt.x) || !Number.isFinite(pt.y) || Math.abs(pt.x) >= 100000 || Math.abs(pt.y) >= 100000) return;
+    if (action === "start") {
+      ctxDrag = { mouse: { x: pt.x, y: pt.y }, bounds: ctxWin.getBounds() };
+      return;
+    }
+    if (action === "move" && ctxDrag) {
+      const area = screen.getDisplayNearestPoint(pt).workArea;
+      const nx = ctxDrag.bounds.x + (pt.x - ctxDrag.mouse.x);
+      const ny = ctxDrag.bounds.y + (pt.y - ctxDrag.mouse.y);
+      const x = Math.round(Math.max(area.x - 8, Math.min(area.x + area.width - CTX_W + 8, nx)));
+      const y = Math.round(Math.max(area.y - 6, Math.min(area.y + area.height - CTX_H + 6, ny)));
+      ctxWin.setBounds({ x, y, width: CTX_W, height: CTX_H });
     }
   });
 
@@ -698,7 +752,9 @@ else {
       }
       sm.handlePointerUp();
       return { moved };
-    } else if (action === "pet") sm.handlePetting();
+    } else if (action === "pet") {
+      if (sm.handlePetting(false)) send("widget:petted", { source: "hover" });
+    }
     return { moved: !!drag?.moved };
   });
 
@@ -841,7 +897,7 @@ else {
         tray = new Tray(appIconPath);
         tray.setToolTip(settings.get("clickThrough") ? "星语猫娘 · 鼠标穿透中（左键设置 / 右键菜单）" : "星语猫娘 · 左键设置 / 右键菜单");
         tray.on("click", () => openSettings());
-        tray.on("right-click", () => openContextMenu());
+        tray.on("right-click", () => openContextMenu({ nearCursor: true }));
       } catch {}
       try {
         globalShortcut.register("CommandOrControl+Alt+G", recall);

@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("widgetApi", {
   command: v => ipcRenderer.send("widget:command", v),
   pointer: v => ipcRenderer.invoke("widget:pointer", v),
   dragMove: p => ipcRenderer.send("widget:drag-move", p),
+  menuDrag: v => ipcRenderer.send("widget:menu-drag", v),
   hit: v => ipcRenderer.send("widget:hit", v),
   audio: v => ipcRenderer.invoke("widget:audio", v),
   importAudio: () => ipcRenderer.invoke("widget:import-audio"),
@@ -27,6 +28,11 @@ contextBridge.exposeInMainWorld("widgetApi", {
     const h = () => callback();
     ipcRenderer.on("widget:reaction", h);
     return () => ipcRenderer.removeListener("widget:reaction", h);
+  },
+  onPetted: callback => {
+    const h = (_e, data) => callback(data);
+    ipcRenderer.on("widget:petted", h);
+    return () => ipcRenderer.removeListener("widget:petted", h);
   },
   onSideButton: callback => {
     const h = (_e, data) => callback(data);

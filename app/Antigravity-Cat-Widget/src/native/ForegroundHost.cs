@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Reflection;
 using System.Threading;
@@ -54,14 +55,27 @@ internal static class ForegroundHost {
     [StructLayout(LayoutKind.Sequential)] private struct Message {public IntPtr Window;public uint Id;public UIntPtr WParam;public IntPtr LParam;public uint Time;public Point Point;public uint Private;}
     [DllImport("user32.dll")] private static extern bool PeekMessage(out Message msg,IntPtr w,uint first,uint last,uint remove);
     private static volatile bool stopping;
+    private static readonly Dictionary<uint, string> pidNameCache = new Dictionary<uint, string>();
+    private static string GetCachedProcessName(uint pid) {
+        if (pid == 0) return "";
+        string cached;
+        if (pidNameCache.TryGetValue(pid, out cached)) return cached;
+        if (pidNameCache.Count > 256) pidNameCache.Clear();
+        string name = "";
+        try {
+            using (var p = Process.GetProcessById((int)pid)) name = p.ProcessName ?? "";
+        } catch { name = ""; }
+        pidNameCache[pid] = name;
+        return name;
+    }
     private static bool IsHost(IntPtr window) {
         try {
-            if(!IsWindow(window)||GetWindow(window,4)!=IntPtr.Zero)return false;
-            var name=new StringBuilder(128);GetClassName(window,name,name.Capacity);
-            Rect rect;if(name.ToString()!="Chrome_WidgetWin_1"||!GetClientRect(window,out rect)||rect.Right-rect.Left<360||rect.Bottom-rect.Top<200)return false;
-            uint pid;GetWindowThreadProcessId(window,out pid);
-            using(var p=Process.GetProcessById((int)pid))return String.Equals(p.ProcessName,"Antigravity",StringComparison.OrdinalIgnoreCase);
-        } catch {return false;}
+            if (!IsWindow(window) || GetWindow(window, 4) != IntPtr.Zero) return false;
+            var name = new StringBuilder(128); GetClassName(window, name, name.Capacity);
+            Rect rect; if (name.ToString() != "Chrome_WidgetWin_1" || !GetClientRect(window, out rect) || rect.Right - rect.Left < 360 || rect.Bottom - rect.Top < 200) return false;
+            uint pid; GetWindowThreadProcessId(window, out pid);
+            return String.Equals(GetCachedProcessName(pid), "Antigravity", StringComparison.OrdinalIgnoreCase);
+        } catch { return false; }
     }
     private static IntPtr FindHost() {
         IntPtr result=IntPtr.Zero;long largest=0;
@@ -69,7 +83,15 @@ internal static class ForegroundHost {
         return result;
     }
     [DllImport("dwmapi.dll")] private static extern int DwmGetWindowAttribute(IntPtr w,int attribute,out int value,int size);
+    [DllImport("shell32.dll")] private static extern int SHQueryUserNotificationState(out int state);
     [DllImport("user32.dll")] private static extern uint MsgWaitForMultipleObjectsEx(uint count,IntPtr handles,uint milliseconds,uint mask,uint flags);
+    private static bool IsFullscreenGameOrBusy() {
+        try {
+            int st;
+            // QUNS_BUSY (2) or QUNS_RUNNING_D3D_FULL_SCREEN (3)
+            return SHQueryUserNotificationState(out st) == 0 && (st == 2 || st == 3);
+        } catch { return false; }
+    }
     [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint period);
     [DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint period);
     private static bool moving,preciseTimer,hasMoved,dirty;
@@ -88,120 +110,124 @@ internal static class ForegroundHost {
     }
     private static bool IsTopmost(IntPtr w) {return (GetWindowLongPtr(w,-20).ToInt64()&8)!=0;}
     private static bool IsSiblingWidget(IntPtr w) {
-        if(w==IntPtr.Zero||!IsWindow(w))return false;
+        if (w == IntPtr.Zero || !IsWindow(w)) return false;
         try {
-            uint pid;GetWindowThreadProcessId(w,out pid);
-            using(var p=Process.GetProcessById((int)pid))
-                return String.Equals(p.ProcessName,"StarWidget",StringComparison.OrdinalIgnoreCase);
-        } catch {return false;}
+            uint pid; GetWindowThreadProcessId(w, out pid);
+            return String.Equals(GetCachedProcessName(pid), "StarWidget", StringComparison.OrdinalIgnoreCase);
+        } catch { return false; }
     }
-    private static bool IsHostOrWidgetForeground(IntPtr foreground,IntPtr widget,IntPtr host) {
-        if(foreground==IntPtr.Zero)return false;
-        if(foreground==widget)return true;
-        if(host!=IntPtr.Zero&&(foreground==host||GetAncestor(foreground,3)==host))return true;
-        if(IsSiblingWidget(foreground))return true;
+    private static bool IsHostOrWidgetForeground(IntPtr foreground, IntPtr widget, IntPtr host) {
+        if (foreground == IntPtr.Zero) return false;
+        if (foreground == widget) return true;
+        if (host != IntPtr.Zero && (foreground == host || GetAncestor(foreground, 3) == host)) return true;
+        if (IsSiblingWidget(foreground)) return true;
         return false;
     }
-    private static void StackWithHost(IntPtr widget,IntPtr host,IntPtr foreground) {
-        if(widget==IntPtr.Zero||!IsWindow(widget))return;
-        if(!Available(host)){
-            if(IsTopmost(widget))SetWindowPos(widget,new IntPtr(-2),0,0,0,0,0x0213);
+    private static void StackWithHost(IntPtr widget, IntPtr host, IntPtr foreground) {
+        if (widget == IntPtr.Zero || !IsWindow(widget)) return;
+        if (!Available(host)) {
+            if (IsTopmost(widget)) SetWindowPos(widget, new IntPtr(-2), 0, 0, 0, 0, 0x0213);
             return;
         }
         // Keep widget in TOPMOST band while Antigravity or widget itself is active so clicking back into Antigravity never covers widget for 1-2 frames.
-        if(IsHostOrWidgetForeground(foreground,widget,host)){
-            if(!IsTopmost(widget))SetWindowPos(widget,new IntPtr(-1),0,0,0,0,0x0213);
+        if (IsHostOrWidgetForeground(foreground, widget, host)) {
+            if (!IsTopmost(widget)) SetWindowPos(widget, new IntPtr(-1), 0, 0, 0, 0, 0x0213);
             return;
         }
-        if(IsTopmost(widget))SetWindowPos(widget,new IntPtr(-2),0,0,0,0,0x0213);
-        for(int step=0;step<4;step++){
-            IntPtr check=(step==0)?GetWindow(host,3):IntPtr.Zero;
-            if(step==0&&check==widget)return;
-            if(step==0&&IsSiblingWidget(check)){
-                IntPtr check2=GetWindow(check,3);
-                if(check2==widget)return;
-            }
-            break;
-        }
-        IntPtr above=GetWindow(host,3);
-        if(above==widget)return;
+        if (IsTopmost(widget)) SetWindowPos(widget, new IntPtr(-2), 0, 0, 0, 0, 0x0213);
+        IntPtr above = GetWindow(host, 3);
+        if (above == widget) return;
+        if (IsSiblingWidget(above) && GetWindow(above, 3) == widget) return;
         // HWND_TOP inserts only into the normal band after any topmost windows.
-        if(above!=IntPtr.Zero&&IsTopmost(above))above=IntPtr.Zero;
-        SetWindowPos(widget,above,0,0,0,0,0x0213);
+        if (above != IntPtr.Zero && IsTopmost(above)) above = IntPtr.Zero;
+        SetWindowPos(widget, above, 0, 0, 0, 0, 0x0213);
     }
     private static void Main(string[] args) {
         int parentId;
-        if(args.Length<1||!Int32.TryParse(args[0],out parentId))return;
+        if (args.Length < 1 || !Int32.TryParse(args[0], out parentId)) return;
         EnablePhysicalCoordinates();
-        long widgetValue=0;if(args.Length>1)Int64.TryParse(args[1],out widgetValue);
-        IntPtr widget=new IntPtr(widgetValue),trackedHost=IntPtr.Zero;
-        if(widget!=IntPtr.Zero)new Thread(delegate(){try{Console.ReadLine();}catch{}stopping=true;}){IsBackground=true}.Start();
-        Point hostPoint=new Point();bool hostWasAvailable=false;int restoreGeneration=0;
-        Action followHost=delegate(){
-            if(widget==IntPtr.Zero||!hostWasAvailable||!Available(trackedHost))return;
-            var next=new Point();Rect widgetRect;
-            if(ClientToScreen(trackedHost,ref next)&&GetWindowRect(widget,out widgetRect)){
-                int dx=next.X-hostPoint.X,dy=next.Y-hostPoint.Y;hostPoint=next;
-                if(dx!=0||dy!=0){SetWindowPos(widget,IntPtr.Zero,widgetRect.Left+dx,widgetRect.Top+dy,0,0,0x0215);hasMoved=true;motion.Restart();}
+        long widgetValue = 0; if (args.Length > 1) Int64.TryParse(args[1], out widgetValue);
+        IntPtr widget = new IntPtr(widgetValue), trackedHost = IntPtr.Zero;
+        if (widget != IntPtr.Zero) new Thread(delegate () { try { Console.ReadLine(); } catch { } stopping = true; }) { IsBackground = true }.Start();
+        Point hostPoint = new Point(); bool hostWasAvailable = false; int restoreGeneration = 0;
+        Action followHost = delegate () {
+            if (widget == IntPtr.Zero || !hostWasAvailable || !Available(trackedHost)) return;
+            var next = new Point(); Rect widgetRect;
+            if (ClientToScreen(trackedHost, ref next) && GetWindowRect(widget, out widgetRect)) {
+                int dx = next.X - hostPoint.X, dy = next.Y - hostPoint.Y; hostPoint = next;
+                if (dx != 0 || dy != 0) { SetWindowPos(widget, IntPtr.Zero, widgetRect.Left + dx, widgetRect.Top + dy, 0, 0, 0x0215); hasMoved = true; motion.Restart(); }
             }
         };
-        WinEvent changed=delegate(IntPtr h,uint ev,IntPtr w,int obj,int child,uint thread,uint time){
-            if(w==trackedHost&&ev==10){moving=true;dirty=true;}
-            if(w==trackedHost&&ev==11){moving=false;hasMoved=true;dirty=true;motion.Restart();followHost();}
-            if(w==trackedHost&&obj==0&&ev==0x800B){dirty=true;followHost();}
-            if(ev==3||ev==0x8004){dirty=true;StackWithHost(widget,trackedHost,GetForegroundWindow());}
+        WinEvent changed = delegate (IntPtr h, uint ev, IntPtr w, int obj, int child, uint thread, uint time) {
+            if (w == trackedHost && ev == 10) { moving = true; dirty = true; }
+            if (w == trackedHost && ev == 11) { moving = false; hasMoved = true; dirty = true; motion.Restart(); followHost(); }
+            if (w == trackedHost && obj == 0 && ev == 0x800B) { dirty = true; followHost(); }
+            if (ev == 3) { dirty = true; StackWithHost(widget, trackedHost, GetForegroundWindow()); }
         };
-        IntPtr locationHook=SetWinEventHook(0x800B,0x800B,IntPtr.Zero,changed,0,0,0);
-        IntPtr foregroundHook=SetWinEventHook(3,3,IntPtr.Zero,changed,0,0,0);
-        IntPtr reorderHook=SetWinEventHook(0x8004,0x8004,IntPtr.Zero,changed,0,0,0);
-        IntPtr dragHook=SetWinEventHook(10,11,IntPtr.Zero,changed,0,0,0);
-        try {using(var parent=Process.GetProcessById(parentId)){
-            var scan=Stopwatch.StartNew();var heartbeat=Stopwatch.StartNew();var metadata=Stopwatch.StartNew();string previous=null;
-            IntPtr lastForeground=IntPtr.Zero;
-            while(!stopping&&!parent.HasExited&&(widget==IntPtr.Zero||IsWindow(widget))){
-                Message queued;while(PeekMessage(out queued,IntPtr.Zero,0,0,1)){}
-                followHost();
-                if(!dirty&&previous!=null&&metadata.ElapsedMilliseconds<32){WaitForUpdate(32u);continue;}
-                dirty=false;
-                metadata.Restart();
-                IntPtr foreground=GetForegroundWindow();uint pid;GetWindowThreadProcessId(foreground,out pid);
-                // Process/class discovery is not on the per-movement path.
-                if(trackedHost==IntPtr.Zero||scan.ElapsedMilliseconds>=1000||foreground!=lastForeground){
-                    IntPtr candidate=GetAncestor(foreground,3);
-                    if(IsHost(candidate)&&candidate!=trackedHost){trackedHost=candidate;hostWasAvailable=false;}
-                    if(!IsHost(trackedHost)){trackedHost=FindHost();hostWasAvailable=false;}
-                    if(!hostWasAvailable){hostPoint=new Point();ClientToScreen(trackedHost,ref hostPoint);}
-                    scan.Restart();
-                }
-                bool available=Available(trackedHost);
-                if(!available)moving=false;
-                if(available&&!hostWasAvailable){
-                    hostPoint=new Point();ClientToScreen(trackedHost,ref hostPoint);restoreGeneration++;
-                }
-                hostWasAvailable=available;lastForeground=foreground;
-                if(available)followHost();
-                StackWithHost(widget,trackedHost,foreground);
-                string bounds=available?Bounds(trackedHost):null;
-                string kind=bounds==null?"other":(pid==parentId?"self":"host");
-                bool behind=false;for(IntPtr w=GetWindow(foreground,2);w!=IntPtr.Zero;w=GetWindow(w,2)){
-                    if(w==widget){behind=true;break;}
-                }
-                string message="{\"restoreGeneration\":"+restoreGeneration+",\"kind\":\""+kind+"\",\"bounds\":"+(bounds??"null")+
-                    ",\"attached\":"+(widget!=IntPtr.Zero&&trackedHost!=IntPtr.Zero?"true":"false")+
-                    ",\"widgetVisible\":"+(widget!=IntPtr.Zero&&IsWindowVisible(widget)?"true":"false")+
-                    ",\"aboveHost\":"+(widget!=IntPtr.Zero&&GetWindow(trackedHost,3)==widget?"true":"false")+
-                    ",\"nativeTopmost\":"+(widget!=IntPtr.Zero&&IsTopmost(widget)?"true":"false")+
-                    ",\"behindForeground\":"+(behind?"true":"false")+
-                    ",\"hostId\":\""+trackedHost.ToInt64()+"\",\"nativeFollowing\":"+(widget!=IntPtr.Zero?"true":"false")+"}";
-                if(message!=previous||heartbeat.ElapsedMilliseconds>=1000){Console.WriteLine(message);Console.Out.Flush();previous=message;heartbeat.Restart();}
-                // Wake on WinEvent messages immediately instead of sleeping a whole display frame.
-                WaitForUpdate();
+        // Only global foreground switch hook (ev=3); drop noisy global 0x8004 reorder hook (250ms loop + ev=3 covers stacking).
+        IntPtr foregroundHook = SetWinEventHook(3, 3, IntPtr.Zero, changed, 0, 0, 0);
+        IntPtr locationHook = IntPtr.Zero, dragHook = IntPtr.Zero;
+        uint hookedHostPid = 0;
+        Action<IntPtr, bool> syncHostScopedHooks = delegate (IntPtr hostWin, bool suspendForFullscreen) {
+            uint nextPid = 0;
+            if (!suspendForFullscreen && hostWin != IntPtr.Zero && IsWindow(hostWin)) GetWindowThreadProcessId(hostWin, out nextPid);
+            if (nextPid == hookedHostPid) return;
+            if (locationHook != IntPtr.Zero) { UnhookWinEvent(locationHook); locationHook = IntPtr.Zero; }
+            if (dragHook != IntPtr.Zero) { UnhookWinEvent(dragHook); dragHook = IntPtr.Zero; }
+            hookedHostPid = nextPid;
+            if (hookedHostPid != 0) {
+                locationHook = SetWinEventHook(0x800B, 0x800B, IntPtr.Zero, changed, hookedHostPid, 0, 0);
+                dragHook = SetWinEventHook(10, 11, IntPtr.Zero, changed, hookedHostPid, 0, 0);
             }
-        }}catch(Exception e){Console.Error.WriteLine(e.Message);}
+        };
+        try {
+            using (var parent = Process.GetProcessById(parentId)) {
+                var scan = Stopwatch.StartNew(); var heartbeat = Stopwatch.StartNew(); var metadata = Stopwatch.StartNew(); var cacheAge = Stopwatch.StartNew(); string previous = null;
+                IntPtr lastForeground = IntPtr.Zero;
+                bool fullscreenPaused = false;
+                while (!stopping && !parent.HasExited && (widget == IntPtr.Zero || IsWindow(widget))) {
+                    Message queued; while (PeekMessage(out queued, IntPtr.Zero, 0, 0, 1)) { }
+                    followHost();
+                    if (!dirty && previous != null && metadata.ElapsedMilliseconds < 32) { WaitForUpdate(32u); continue; }
+                    dirty = false;
+                    metadata.Restart();
+                    IntPtr foreground = GetForegroundWindow(); uint pid; GetWindowThreadProcessId(foreground, out pid);
+                    bool fgIsOurs = IsHostOrWidgetForeground(foreground, widget, trackedHost);
+                    bool nextFullscreen = !fgIsOurs && IsFullscreenGameOrBusy();
+                    // Process/class discovery is not on the per-movement path.
+                    if (trackedHost == IntPtr.Zero || scan.ElapsedMilliseconds >= 1000 || foreground != lastForeground || nextFullscreen != fullscreenPaused) {
+                        if (cacheAge.ElapsedMilliseconds >= 30000) { pidNameCache.Clear(); cacheAge.Restart(); }
+                        IntPtr candidate = GetAncestor(foreground, 3);
+                        if (IsHost(candidate) && candidate != trackedHost) { trackedHost = candidate; hostWasAvailable = false; }
+                        if (!IsHost(trackedHost)) { trackedHost = FindHost(); hostWasAvailable = false; }
+                        fullscreenPaused = !IsHostOrWidgetForeground(foreground, widget, trackedHost) && IsFullscreenGameOrBusy();
+                        syncHostScopedHooks(trackedHost, fullscreenPaused);
+                        if (!hostWasAvailable) { hostPoint = new Point(); if (trackedHost != IntPtr.Zero) ClientToScreen(trackedHost, ref hostPoint); }
+                        scan.Restart();
+                    }
+                    bool available = Available(trackedHost);
+                    if (!available || fullscreenPaused) moving = false;
+                    if (available && !hostWasAvailable) {
+                        hostPoint = new Point(); ClientToScreen(trackedHost, ref hostPoint); restoreGeneration++;
+                    }
+                    hostWasAvailable = available; lastForeground = foreground;
+                    if (available && !fullscreenPaused) followHost();
+                    StackWithHost(widget, trackedHost, foreground);
+                    string bounds = available ? Bounds(trackedHost) : null;
+                    string kind = bounds == null ? "other" : (pid == parentId ? "self" : "host");
+                    string message = "{\"restoreGeneration\":" + restoreGeneration + ",\"kind\":\"" + kind + "\",\"bounds\":" + (bounds ?? "null") +
+                        ",\"attached\":" + (widget != IntPtr.Zero && trackedHost != IntPtr.Zero ? "true" : "false") +
+                        ",\"hostId\":\"" + trackedHost.ToInt64() + "\",\"nativeFollowing\":" + (widget != IntPtr.Zero ? "true" : "false") + "}";
+                    if (message != previous || heartbeat.ElapsedMilliseconds >= 1000) { Console.WriteLine(message); Console.Out.Flush(); previous = message; heartbeat.Restart(); }
+                    // During fullscreen games, sleep 1000ms (ev=3 wakes instantly when Alt+Tab back); otherwise 250ms.
+                    WaitForUpdate(fullscreenPaused ? 1000u : 250u);
+                }
+            }
+        } catch (Exception e) { Console.Error.WriteLine(e.Message); }
         finally {
-            foreach(var hook in new[]{locationHook,foregroundHook,reorderHook,dragHook})if(hook!=IntPtr.Zero)UnhookWinEvent(hook);
-            if(preciseTimer)timeEndPeriod(1);
-            if(widget!=IntPtr.Zero&&IsWindow(widget))SetWindowPos(widget,new IntPtr(-2),0,0,0,0,0x0213);
+            foreach (var hook in new[] { locationHook, foregroundHook, dragHook }) if (hook != IntPtr.Zero) UnhookWinEvent(hook);
+            if (preciseTimer) timeEndPeriod(1);
+            if (widget != IntPtr.Zero && IsWindow(widget)) SetWindowPos(widget, new IntPtr(-2), 0, 0, 0, 0, 0x0213);
             GC.KeepAlive(changed);
         }
     }

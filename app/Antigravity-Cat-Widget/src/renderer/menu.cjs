@@ -86,6 +86,56 @@
 
   window.addEventListener("contextmenu", e => e.preventDefault());
 
+  const header = $("ctxHeader");
+  let menuDrag = null, menuDragRaf = 0, pendingDragPt = null;
+  function flushMenuDrag() {
+    if (menuDragRaf) {
+      cancelAnimationFrame(menuDragRaf);
+      menuDragRaf = 0;
+    }
+    if (pendingDragPt && menuDrag && typeof api.menuDrag === "function") {
+      const pt = pendingDragPt;
+      pendingDragPt = null;
+      api.menuDrag({ action: "move", point: pt });
+    } else {
+      pendingDragPt = null;
+    }
+  }
+  function endMenuDrag() {
+    if (!menuDrag) return;
+    flushMenuDrag();
+    menuDrag = null;
+    if (header) delete header.dataset.dragging;
+    if (typeof api.menuDrag === "function") api.menuDrag({ action: "end" });
+  }
+  if (header && typeof api.menuDrag === "function") {
+    header.addEventListener("pointerdown", e => {
+      if (e.button !== 0) return;
+      menuDrag = { id: e.pointerId };
+      header.dataset.dragging = "true";
+      try { header.setPointerCapture(e.pointerId); } catch {}
+      api.menuDrag({ action: "start", point: { x: e.screenX, y: e.screenY } });
+    });
+    header.addEventListener("pointermove", e => {
+      if (!menuDrag || e.pointerId !== menuDrag.id) return;
+      pendingDragPt = { x: e.screenX, y: e.screenY };
+      if (!menuDragRaf) {
+        menuDragRaf = requestAnimationFrame(() => {
+          menuDragRaf = 0;
+          if (pendingDragPt && menuDrag) {
+            const pt = pendingDragPt;
+            pendingDragPt = null;
+            api.menuDrag({ action: "move", point: pt });
+          }
+        });
+      }
+    });
+    header.addEventListener("pointerup", endMenuDrag);
+    header.addEventListener("pointercancel", endMenuDrag);
+    header.addEventListener("lostpointercapture", endMenuDrag);
+    window.addEventListener("blur", endMenuDrag);
+  }
+
   api.subscribe(next => {
     data = { ...data, ...next };
     render();

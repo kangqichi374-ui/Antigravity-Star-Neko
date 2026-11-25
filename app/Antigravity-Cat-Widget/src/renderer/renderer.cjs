@@ -1,6 +1,6 @@
 (async () => {
   const api = window.widgetApi, $ = id => document.getElementById(id), mascot = $("mascot");
-  let snapshot, selected = "quota", closed = true, temporary = null, timeout, pointer = null, gesture = 0, currentSound = null, petAt = 0, hoverCount = 0, hoverTime = 0, hit = null;
+  let snapshot, selected = "quota", closed = true, temporary = null, timeout, pointer = null, gesture = 0, currentSound = null, petAt = 0, hit = null;
   let personality, talkState, talkLine, eggTimer, autoHide, hideAnimation, readyTimer, bounceTimer, lastBubbleOpen = null, blinkTimer = null, blinkResetTimer = null;
   let earIdleTimer = null, earSeqTimer = null, ahogeIdleTimer = null, earLRaf = 0, earRRaf = 0, ahogeRaf = 0, earLToken = 0, earRToken = 0, ahogeToken = 0;
   let curEarL = 0, curEarR = 0, curAhogeDeg = 0, curAhogeDy = 0, curAhogeScaleY = 1;
@@ -186,8 +186,8 @@
   function syncAmbientLoop() {
     const st = snapshot?.state;
     const compat = isCompat();
-    const bubbleFloating = !closed && snapshot?.settings?.bubbleOn && !compat;
     // In compat (CPU software) mode, skip subpixel 1px idle micro-scale so idle CPU stays ~0% while keeping blink/ears/ahoge/strand/glow!
+    // Keep bubble text stationary for crisp readability.
     const stateNeedsLoop = compat
       ? (st === "thinking" || st === "warning" || st === "error")
       : (st === "idle" || st === "thinking" || st === "warning" || st === "error");
@@ -196,7 +196,7 @@
       !snapshot?.settings?.reducedMotion &&
       !pointer &&
       mascot.dataset.pressed !== "true" &&
-      (stateNeedsLoop || bubbleFloating);
+      stateNeedsLoop;
 
     if (!active) {
       stopAmbientLoop(true);
@@ -208,25 +208,18 @@
     syncAmbientLoop._tickMs = targetTickMs;
 
     const mEl = $("motion"), innerEl = $("bubble-inner");
+    if (innerEl && innerEl.style.transform) innerEl.style.transform = "";
     ambientMotionTimer = setInterval(() => {
       const compatNow = isCompat();
       const cur = snapshot?.state;
       const neededNow = compatNow
         ? (cur === "thinking" || cur === "warning" || cur === "error")
-        : (cur === "idle" || cur === "thinking" || cur === "warning" || cur === "error" || (!closed && snapshot?.settings?.bubbleOn));
+        : (cur === "idle" || cur === "thinking" || cur === "warning" || cur === "error");
       if (isEffectivelyHidden() || !snapshot || snapshot.settings?.reducedMotion || pointer || mascot.dataset.pressed === "true" || !neededNow) {
         stopAmbientLoop(true);
         return;
       }
       const now = performance.now();
-      if (innerEl) {
-        if (!compatNow && !closed && snapshot.settings?.bubbleOn) {
-          const bw = 0.5 - 0.5 * Math.cos(((now % 3200) / 3200) * Math.PI * 2);
-          innerEl.style.transform = `translateY(${(-2.5 * bw).toFixed(2)}px)`;
-        } else if (innerEl.style.transform) {
-          innerEl.style.transform = "";
-        }
-      }
       if (cur === "idle") {
         if (compatNow) {
           if (mEl && mEl.style.transform) mEl.style.transform = "";
@@ -944,17 +937,175 @@
   }
   window.addEventListener("resize", invalidateFaceRect);
 
-  function hitTestPart(clientX, clientY) {
+  function getFaceUv(clientX, clientY) {
     const r = getFaceRect();
-    if (!r || !r.width || !r.height) return "body";
+    if (!r || !r.width || !r.height) return null;
     let u = (clientX - r.left) / r.width;
     const v = (clientY - r.top) / r.height;
-    if (u < 0 || u >= 1 || v < 0 || v >= 1) return "body";
+    if (u < 0 || u >= 1 || v < 0 || v >= 1) return null;
     if (mascot.dataset.facing === "left") u = 1 - u;
-    const x = Math.min(HIT_W - 1, Math.floor(u * HIT_W));
-    const y = Math.min(HIT_H - 1, Math.floor(v * HIT_H));
+    return { u, v, rect: r };
+  }
+
+  function hitTestPart(clientX, clientY) {
+    const uv = getFaceUv(clientX, clientY);
+    if (!uv) return "body";
+    const x = Math.min(HIT_W - 1, Math.floor(uv.u * HIT_W));
+    const y = Math.min(HIT_H - 1, Math.floor(uv.v * HIT_H));
     const code = PART_HIT_GRID[y * HIT_W + x];
     return code === 1 ? "earL" : code === 2 ? "earR" : code === 3 ? "ahoge" : "body";
+  }
+
+  const HAIR_RUB_COOLDOWN_MS = 12000;
+  const HAIR_RUB_MAX_GAP_MS = 180;
+  const HAIR_RUB_WINDOW_MS = 900;
+  const HAIR_RUB_TURN_HYSTERESIS_PX = 6;
+  const HAIR_RUB_REQUIRED_FAST_LEGS = 3; // 至少两折三段（右→左→右 或 左→右→左）快速揉搓
+
+  function isHairUv(u, v) {
+    if (u < 0.14 || u > 0.86 || v > 0.57) return false;
+    // 顶部边界贴合猫娘发冠弧线（覆盖发顶、呆毛根部与刘海，排除眼睛/脸颊与上方透明留白）
+    const crownTop = 0.17 + 0.21 * Math.pow((u - 0.50) / 0.36, 2);
+    return v >= crownTop;
+  }
+
+  function createHairRubState() {
+    return {
+      active: false,
+      startAt: 0,
+      lastX: 0,
+      lastY: 0,
+      lastAt: 0,
+      dir: 0,
+      legStartAt: 0,
+      legDx: 0,
+      legDy: 0,
+      peakAt: 0,
+      revDx: 0,
+      revDy: 0,
+      fastLegs: 0,
+    };
+  }
+  const hairRub = createHairRubState();
+
+  function resetHairRub() {
+    Object.assign(hairRub, createHairRubState());
+  }
+
+  function isFastHorizontalLeg(dx, dy, dtMs, faceWidth) {
+    const absDx = Math.abs(dx);
+    const absDy = Math.abs(dy);
+    const minLegPx = Math.max(16, faceWidth * 0.08);
+    if (absDx < minLegPx || absDx < absDy * 1.35) return false;
+    // 正常单向滑过/轻晃约 100~420 px/s；默认 220px 宽下需 ≥ 550 px/s（随缩放限幅 500~820 px/s）
+    const minSpeedPxPerSec = Math.max(500, Math.min(820, faceWidth * 2.5));
+    const speedPxPerSec = (absDx * 1000) / Math.max(8, dtMs);
+    return speedPxPerSec >= minSpeedPxPerSec;
+  }
+
+  /** 检测头顶头发区域的快速左右往返滑动，替代早前的慢速悬停计数触发。 */
+  function trackHairRub(e, now) {
+    const uv = getFaceUv(e.clientX, e.clientY);
+    if (!uv || !isHairUv(uv.u, uv.v)) {
+      resetHairRub();
+      return false;
+    }
+    if (petAt > 0 && now - petAt <= HAIR_RUB_COOLDOWN_MS) {
+      resetHairRub();
+      return false;
+    }
+
+    const faceWidth = uv.rect.width;
+    const x = e.clientX;
+    const y = e.clientY;
+    if (!hairRub.active || now - hairRub.lastAt > HAIR_RUB_MAX_GAP_MS) {
+      hairRub.active = true;
+      hairRub.startAt = now;
+      hairRub.lastX = x;
+      hairRub.lastY = y;
+      hairRub.lastAt = now;
+      hairRub.dir = 0;
+      hairRub.legStartAt = now;
+      hairRub.legDx = 0;
+      hairRub.legDy = 0;
+      hairRub.peakAt = now;
+      hairRub.revDx = 0;
+      hairRub.revDy = 0;
+      hairRub.fastLegs = 0;
+      return false;
+    }
+
+    const stepDx = x - hairRub.lastX;
+    const stepDy = y - hairRub.lastY;
+    const prevAt = hairRub.lastAt;
+    hairRub.lastX = x;
+    hairRub.lastY = y;
+    hairRub.lastAt = now;
+
+    if (Math.hypot(stepDx, stepDy) < 2) return false;
+    const stepDir = stepDx > 0 ? 1 : stepDx < 0 ? -1 : 0;
+
+    if (hairRub.dir === 0) {
+      if (stepDir === 0) return false;
+      hairRub.dir = stepDir;
+      hairRub.legStartAt = prevAt;
+      hairRub.legDx = stepDx;
+      hairRub.legDy = stepDy;
+      hairRub.peakAt = now;
+      hairRub.revDx = 0;
+      hairRub.revDy = 0;
+      return false;
+    }
+
+    if (stepDir === 0) {
+      if (hairRub.revDx !== 0) {
+        hairRub.revDy += stepDy;
+      } else {
+        hairRub.legDy += stepDy;
+        hairRub.peakAt = now;
+      }
+    } else if (stepDir === hairRub.dir) {
+      hairRub.legDx += stepDx;
+      hairRub.legDy += stepDy;
+      hairRub.peakAt = now;
+      hairRub.revDx = 0;
+      hairRub.revDy = 0;
+    } else {
+      hairRub.revDx += stepDx;
+      hairRub.revDy += stepDy;
+      if (Math.abs(hairRub.revDx) >= HAIR_RUB_TURN_HYSTERESIS_PX) {
+        const legDt = Math.max(8, hairRub.peakAt - hairRub.legStartAt);
+        if (isFastHorizontalLeg(hairRub.legDx, hairRub.legDy, legDt, faceWidth) && now - hairRub.startAt <= HAIR_RUB_WINDOW_MS) {
+          hairRub.fastLegs += 1;
+        } else {
+          // 前一段过慢或超时：从本次折返重新起算第 1 段，无需移出头发重来
+          hairRub.fastLegs = 0;
+          hairRub.startAt = hairRub.peakAt;
+        }
+        hairRub.dir = stepDir;
+        hairRub.legStartAt = hairRub.peakAt;
+        hairRub.legDx = hairRub.revDx;
+        hairRub.legDy = hairRub.revDy;
+        hairRub.peakAt = now;
+        hairRub.revDx = 0;
+        hairRub.revDy = 0;
+      }
+    }
+
+    if (hairRub.fastLegs >= HAIR_RUB_REQUIRED_FAST_LEGS - 1) {
+      if (now - hairRub.startAt > HAIR_RUB_WINDOW_MS) {
+        hairRub.fastLegs = 0;
+        hairRub.startAt = hairRub.legStartAt;
+        return false;
+      }
+      const curDt = Math.max(8, now - hairRub.legStartAt);
+      if (isFastHorizontalLeg(hairRub.legDx, hairRub.legDy, curDt, faceWidth)) {
+        petAt = now;
+        resetHairRub();
+        return true;
+      }
+    }
+    return false;
   }
 
   function pressPart(part, pressed) {
@@ -1261,6 +1412,7 @@
   }
 
   motion.addEventListener("pointerdown", e => {
+    resetHairRub();
     if (e.button !== 0) return;
     const hitPart = hitTestPart(e.clientX, e.clientY);
     if (hitPart !== "body") {
@@ -1302,8 +1454,12 @@
   }
 
   motion.addEventListener("pointermove", e => {
-    if (partPointer) return;
+    if (partPointer) {
+      resetHairRub();
+      return;
+    }
     if (pointer) {
+      resetHairRub();
       if (Math.hypot(e.screenX - pointer.x, e.screenY - pointer.y) > 8) pointer.moved = true;
       pendingDragPoint = { x: e.screenX, y: e.screenY };
       if (!dragMoveRaf) {
@@ -1319,7 +1475,10 @@
       }
       return;
     }
-    if (hasSideButtonHeld()) return;
+    if (hasSideButtonHeld()) {
+      resetHairRub();
+      return;
+    }
     const hoverPart = hitTestPart(e.clientX, e.clientY);
     if (hoverPart !== "body") {
       if (motion.dataset.hoverPart !== hoverPart) motion.dataset.hoverPart = hoverPart;
@@ -1327,19 +1486,14 @@
       delete motion.dataset.hoverPart;
     }
 
-    const now = Date.now();
-    hoverCount = now - hoverTime < 250 ? hoverCount + 1 : 1;
-    hoverTime = now;
-    if (hoverCount > 16 && now - petAt > 12000) {
-      hoverCount = 0;
-      petAt = now;
-      triggerBlushWarmth();
+    if (trackHairRub(e, performance.now())) {
       api.pointer("pet");
     }
   });
 
   motion.addEventListener("pointerleave", () => {
     delete motion.dataset.hoverPart;
+    resetHairRub();
   });
 
   async function release(cancel = false) {
@@ -1369,7 +1523,7 @@
   motion.addEventListener("pointerup", e => { releasePart(false, e); release(); });
   motion.addEventListener("pointercancel", e => { releasePart(true, e); release(true); });
   motion.addEventListener("lostpointercapture", e => { releasePart(true, e); release(true); });
-  window.addEventListener("blur", () => { lastPointerPos = null; releaseAllSideButtons(true); releasePart(true); release(true); });
+  window.addEventListener("blur", () => { resetHairRub(); lastPointerPos = null; releaseAllSideButtons(true); releasePart(true); release(true); });
 
   motion.addEventListener("keydown", e => {
     if (e.key === " " || e.key === "Enter") {
@@ -1400,6 +1554,7 @@
     const hiddenNow = isEffectivelyHidden();
     if (hiddenNow) {
       mascot.dataset.paused = "true";
+      resetHairRub();
       stopAmbientLoop(true);
       clearTimeout(blinkTimer);
       clearTimeout(blinkResetTimer);
@@ -1409,6 +1564,8 @@
       clearTimeout(ahogeIdleTimer);
       clearTimeout(strandIdleTimer);
       clearTimeout(strandStepTimer);
+      clearTimeout(pettingExprTimer);
+      pettingExprTimer = null;
       strandStepTimer = null;
       strandToken++;
       cancelAnimationFrame(earLRaf);
@@ -1481,7 +1638,7 @@
     if (prevCustom !== data.settings.customLines || prevMode !== data.settings.customLinesMode) {
       nextTalkLine();
     }
-    if (!data.settings.easterEggs || !["idle", "offline", "pressed", "release"].includes(data.state)) {
+    if (!pettingExprTimer && (!data.settings.easterEggs || !["idle", "offline", "pressed", "release", "petting"].includes(data.state))) {
       stopReaction();
     }
     syncGemState();
@@ -1515,11 +1672,14 @@
       play("waiting");
     }
     if (snapshot?.settings.waitingAlertOn) {
+      const waitMs = snapshot.settings.turnCostDurationMs === 0
+        ? 0
+        : Math.max(6000, snapshot.settings.turnCostDurationMs ?? 6000);
       message(
         "等待你的确认",
         "AI 正在等你回答",
         "请切回聊天窗口查看提问",
-        Math.max(6000, snapshot.settings.turnCostDurationMs || 6000),
+        waitMs,
         ""
       );
     }
@@ -1538,6 +1698,8 @@
       clicked
     );
     if (!kind) return;
+    clearTimeout(pettingExprTimer);
+    pettingExprTimer = null;
     delete mascot.dataset.blink;
     mascot.dataset.expression = kind;
     triggerBlushWarmth();
@@ -1549,7 +1711,62 @@
     }, 3200);
   }
 
+  let pettingExprTimer = null;
+  function triggerPettingEffect(info = {}) {
+    petAt = performance.now();
+    resetHairRub();
+    triggerBlushWarmth();
+    if (motion) {
+      motion.style.animation = "none";
+      void motion.offsetWidth;
+      motion.style.animation = "";
+    }
+    const heartEl = document.querySelector(".agy-effect--heart");
+    if (heartEl) {
+      heartEl.style.animation = "none";
+      void heartEl.offsetWidth;
+      heartEl.style.animation = "";
+    }
+    delete mascot.dataset.blink;
+    mascot.dataset.expression = "proud";
+    clearTimeout(eggTimer);
+    clearTimeout(pettingExprTimer);
+    pettingExprTimer = setTimeout(() => {
+      pettingExprTimer = null;
+      if (mascot.dataset.expression === "proud") {
+        delete mascot.dataset.expression;
+        talkState = null;
+        render();
+      }
+    }, 1800);
+
+    if (!snapshot?.settings?.reducedMotion && !isEffectivelyHidden()) {
+      clearTimeout(earSeqTimer);
+      earSeqTimer = null;
+      runSingleEarTwitch("left", 7, true);
+      earSeqTimer = setTimeout(() => {
+        earSeqTimer = null;
+        if (!snapshot?.settings?.reducedMotion && !pointer && !isPartHeld("earR") && !isEffectivelyHidden()) {
+          runSingleEarTwitch("right", 7, true);
+        }
+      }, 150);
+      runAhogeTween(680, p => {
+        const decay = Math.pow(1 - p, 1.5);
+        const deg = 18 * Math.sin(p * Math.PI * 3) * decay;
+        return [deg, 0, 1];
+      });
+      runStrandSequence([1, 2, 0, 4, 5, 0], 680);
+    }
+
+    if (info?.source !== "hover" && snapshot?.settings?.sound) {
+      play("release");
+    }
+  }
+
   api.onReaction(() => reaction(true));
+  if (typeof api.onPetted === "function") {
+    api.onPetted(info => triggerPettingEffect(info));
+  }
   if (typeof api.onOpenQuota === "function") {
     api.onOpenQuota(() => {
       clearTimeout(timeout);
@@ -1577,6 +1794,7 @@
     clearTimeout(timeout);
     clearTimeout(autoHide);
     clearTimeout(hideAnimation);
+    clearTimeout(pettingExprTimer);
     clearTimeout(readyTimer);
     clearTimeout(bounceTimer);
     clearTimeout(bubblePressTimer);

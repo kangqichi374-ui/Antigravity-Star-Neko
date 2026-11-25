@@ -31,6 +31,9 @@ class UsageLedger {
     this.now = options.now || (() => new Date());
     this.records = new Map();
     this.quotaRemainingPercent = null;
+    this._version = 0;
+    this._cacheKey = null;
+    this._cachedSnapshot = null;
     if (this.storagePath) {
       const stored = readJson(this.storagePath, { records: [] });
       for (const row of Array.isArray(stored.records) ? stored.records : []) {
@@ -50,6 +53,8 @@ class UsageLedger {
     if (!record) return null;
     if (previous && JSON.stringify(previous.tokens) === JSON.stringify(record.tokens)) return null;
     this.records.set(record.id, record);
+    this._version++;
+    this._cachedSnapshot = null;
     // Fill late numeric metadata without another completion bubble or sound.
     return previous ? { ...record, updated: true } : record;
   }
@@ -74,15 +79,24 @@ class UsageLedger {
   }
   getSnapshot() {
     const date = localDate(this.now());
-    const rows = [...this.records.values()].filter(row => row.date === date);
+    const cacheKey = `${this._version}|${date}|${this.quotaRemainingPercent ?? ""}`;
+    if (this._cachedSnapshot && this._cacheKey === cacheKey) {
+      return this._cachedSnapshot;
+    }
+    const rows = [];
+    let latest = null;
+    for (const row of this.records.values()) {
+      if (row.date === date) rows.push(row);
+      if (!latest || row.timestamp > latest.timestamp) latest = row;
+    }
     const sum = key => {
       if (!rows.length || rows.some(row => row.tokens[key] === null)) return null;
       const value = rows.reduce((total, row) => total + row.tokens[key], 0);
       return Number.isSafeInteger(value) ? value : null;
     };
     const partial = rows.some(row => row.tokens.total === null);
-    const latest = [...this.records.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp))[0] || null;
-    return {
+    this._cacheKey = cacheKey;
+    this._cachedSnapshot = {
       date, todayTokens: {
         prompt: sum("input"), cache: sum("cache"), output: sum("output"),
         total: sum("total")
@@ -90,6 +104,7 @@ class UsageLedger {
       todaySteps: rows.length, todayTurns: null, todayCost: null,
       quota: this.getQuotaStatus(), accountBalance: null, latest, partial, isDemoMode: false
     };
+    return this._cachedSnapshot;
   }
   get todayTotalTokens() { return this.getSnapshot().todayTokens.total; }
 }

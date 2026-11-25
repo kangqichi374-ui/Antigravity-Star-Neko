@@ -29,8 +29,8 @@ html, body {
   --agy-anchor: 68%;
   bottom: calc(100% + 20px);
   margin: 0;
-  width: 236px;
-  max-width: 236px;
+  width: 240px;
+  max-width: 240px;
   min-height: 136px;
   padding: 0 !important;
   border: 0 !important;
@@ -54,10 +54,13 @@ html, body {
   display: none !important;
 }
 
-/* Main big bubble card — clipped to oval so content never pokes out */
+/* Main big bubble card — 2x supersampled (zoom:2 + scale 0.5) so press squish keeps text crisp on GPU */
 .agy-art .agy-bubble__card {
-  position: relative;
-  width: 236px;
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  margin-left: -120px;
+  width: 240px;
   height: 136px;
   min-height: 136px;
   padding: 18px 38px 22px;
@@ -69,13 +72,14 @@ html, body {
   justify-content: center;
   text-align: center;
   cursor: pointer;
+  zoom: 2;
   opacity: 0;
-  transform: scale(0.65);
-  transform-origin: var(--agy-anchor) 100%;
+  transform: scale(0.325);
+  transform-origin: 50% 100%;
   transition: opacity 180ms ease, transform 210ms cubic-bezier(0.22, 0.85, 0.3, 1.2);
 }
 
-/* Safe inscribed content container with gentle floating & click Q-bounce */
+/* Safe inscribed content container with click Q-bounce */
 .agy-art .agy-bubble__inner {
   width: 100%;
   max-width: 154px;
@@ -147,7 +151,7 @@ html, body {
 }
 .agy-art .agy-bubble[data-open="true"] .agy-bubble__card {
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: translateY(0) scale(0.5);
   transition-delay: 260ms;
 }
 
@@ -159,9 +163,9 @@ html, body {
   transition-delay: 0ms;
 }
 
-/* Follow character press/squish motion (clearly squishes flat like the character) */
+/* Follow character press/squish motion (card + text squish together cleanly from 2x supersampled raster) */
 .agy-art[data-pressed="true"]:not([data-state="dragged"]) .agy-bubble[data-open="true"][data-ready="true"] .agy-bubble__card {
-  transform: translateY(16px) scale(1.10, 0.82);
+  transform: translateY(8px) scale(0.55, 0.41);
   transition: opacity 160ms ease, transform 95ms cubic-bezier(0.2, 0.9, 0.3, 1);
   transition-delay: 0ms;
 }
@@ -178,7 +182,7 @@ html, body {
 
 /* Also squish flat when clicking directly on the dialog bubble itself */
 .agy-art .agy-bubble[data-open="true"][data-ready="true"][data-pressed="true"] .agy-bubble__card {
-  transform: translateY(6px) scale(1.09, 0.84);
+  transform: translateY(3px) scale(0.545, 0.42);
   transition: opacity 160ms ease, transform 90ms cubic-bezier(0.2, 0.9, 0.3, 1);
   transition-delay: 0ms;
 }
@@ -189,7 +193,7 @@ html, body {
 }
 .agy-art .agy-bubble[data-open="false"] .agy-bubble__card {
   opacity: 0;
-  transform: scale(0.65);
+  transform: scale(0.325);
   transition: opacity 150ms ease, transform 160ms ease-in;
   transition-delay: 0ms;
 }
@@ -570,6 +574,51 @@ html, body {
   opacity: 0;
   pointer-events: none;
   z-index: 2;
+}
+.agy-art .agy-effect--heart {
+  width: 21%;
+  top: 20%;
+  right: 3%;
+  filter: drop-shadow(0 2px 6px rgba(212, 92, 158, 0.35));
+}
+.agy-art[data-state="petting"] .agy-motion {
+  animation: agy-nuzzle 1.6s ease-in-out both;
+}
+.agy-art[data-state="petting"] .agy-effect--heart {
+  display: block;
+  animation: agy-heart 1.65s ease-out both;
+}
+@keyframes agy-nuzzle {
+  0%, 100% {
+    transform: rotate(0) translateY(0) scale(1);
+  }
+  20% {
+    transform: rotate(-2.8deg) translateY(2px) scale(1.015, 0.985);
+  }
+  50% {
+    transform: rotate(2.6deg) translateY(1px) scale(1.012, 0.988);
+  }
+  78% {
+    transform: rotate(-1.6deg) translateY(2px) scale(1.008, 0.992);
+  }
+}
+@keyframes agy-heart {
+  0% {
+    transform: translateY(8px) scale(0.5);
+    opacity: 0;
+  }
+  22% {
+    transform: translateY(-2px) scale(1.12);
+    opacity: 1;
+  }
+  65% {
+    transform: translateY(-18px) scale(1.04);
+    opacity: 0.96;
+  }
+  100% {
+    transform: translateY(-28px) scale(0.92);
+    opacity: 0;
+  }
 }
 .agy-effect {
   z-index: 3;

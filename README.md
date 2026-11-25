@@ -1,88 +1,38 @@
-# 星语猫娘 Neko · 分层微动版
+# 星语猫娘 Neko · v1.11（53 层分层微动桌宠）
 
-A 53-layer split-sprite catgirl desktop pet for Google Antigravity. Unofficial fork.
+A 53-layer split-sprite desktop catgirl companion for Google Antigravity (Windows, unofficial fork).
 
-基于开源项目 [Monokumakuki/Antigravity-Star-Suite](https://github.com/Monokumakuki/Antigravity-Star-Suite)（`star-suite-widget v0.2.14`）深度二次开发的 Windows Electron 桌宠改版：将原版静态单图立绘无损拆分为 **53 层准 Live2D 动态立绘**，新增 **像素级左右耳/呆毛独立按压**、**鼠标侧键双耳控制（零系统钩子）**、**5 种常态耳动波浪**、**AI 工作态星晶薄光边**、**4 套气泡主题**与**伴随 Antigravity 自动启停**。
+基于开源项目 [Monokumakuki/Antigravity-Star-Suite](https://github.com/Monokumakuki/Antigravity-Star-Suite)（`star-suite-widget v0.2.14`）深度二次开发的 Windows Electron 桌宠改版：将原版静态单图立绘无损拆分为 **53 层准 Live2D 动态立绘**，带来像素级耳朵/呆毛/侧键互动、防误触「摸摸头」、四色自绘避让菜单、2× 超采样防糊 Q 弹气泡、实时 Gemini 额度与单轮 Token 播报、GPU/防小飞机双渲染管线，以及零轮询伴随启停。
 
-> **开源与素材权利声明（请务必阅读）**
-> - **软件代码**：继承上游 [LICENSE](LICENSE)（MIT License，Copyright (c) 2026 Monokumakuki），本仓库二次开发代码同样遵循 MIT。第三方依赖说明见 [NOTICE.md](app/NOTICE.md)。
-> - **美术素材**：详见 [ASSETS.md](app/ASSETS.md)。软件 MIT 许可**不适用于角色立绘图片与第三方标识**；角色设计参考署名 **ZipZipPipe**。角色图层使用已获原作者 Monokumakuki 许可（2026-11-22），仅用于本项目非商用展示与运行，不授予独立再许可。**如任何权利人对图片展示或包含存在异议，请通过本仓库 Issues 联系，将立即下架或调整。**
-> - **音效素材**：本公开版仅保留上游可记录许可的 4 套 CC0 / MIT 安全音色（已移除全部第三方游戏/未验证授权音频）；用户可在设置面板中自行导入本地 `.wav / .mp3 / .ogg / .m4a` 音频。
+[效果预览](#效果预览) · [快速安装](#快速安装windows-10--11) · [核心功能与交互](#核心功能与交互) · [性能与底层架构](#性能与底层架构) · [更新日志](#更新日志) · [开源与素材声明](#开源与素材权利声明) · [English](#english)
 
 ---
 
 ## 效果预览
 
-| 左右耳 & 呆毛独立按压 / 侧键双耳齐压 | 53 层常态耳动波浪 & AI 工作态星晶光边 | 本体联动气泡 / 4 套主题 / 单轮 Token 播报 |
+| 左右耳 & 呆毛独立按压 / 侧键双耳齐压 | 53 层耳动波浪 & AI 工作态星晶光边 | 发冠搓揉防误触 & 摸摸头完整演出 |
 | :---: | :---: | :---: |
-| ![左右耳与呆毛独立按压及侧键控耳](docs/media/01-ear-ahoge-side-buttons.gif) | ![53层常态耳动波浪与工作态星晶光边](docs/media/02-idle-ear-wave-star-glow.gif) | ![点击本体联动气泡与四套主题](docs/media/03-body-bubble-themes-tokens.gif) |
+| ![耳朵呆毛与侧键交互](docs/media/01-ear-ahoge-side-buttons.gif) | ![耳动波浪与星晶薄光边](docs/media/02-idle-ear-wave-star-glow.gif) | ![摸摸头互动与防误触](docs/media/04-headpat-hair-rub.gif) |
+
+| 四色主题三端同步联动 | 窗口零延迟贴边跟随 & 关闭秒退 | 本体联动气泡 & 单轮 Token 播报 |
+| :---: | :---: | :---: |
+| ![四色主题与自绘菜单联动](docs/media/05-four-themes-menu.gif) | ![贴边跟随与关闭伴随退出](docs/media/06-dock-follow-exit.gif) | ![气泡交互与Token播报](docs/media/03-body-bubble-themes-tokens.gif) |
 
 ---
 
-## 主要功能
+## 快速安装（Windows 10 / 11）
 
-### 1. 53 层无损动态立绘与状态特效
-- **原画零改动**：`frames/` 原图完整保留，脸部与眼睛零修改，静止叠合像素误差为 `0`。
-- **常态 5 种猫耳动作**：每 `7–14s` 随机触发——左耳、右耳、双耳同步，以及 **左耳先下 → 右耳紧跟** / **右耳先下 → 左耳紧跟**（先后间隔 `170–250ms`，单耳下压回弹 `460ms`）；左右耳下小发包（`bunL/bunR`）全程 Q 弹同步跟随。
-- **呆毛、发梢与眨眼**：头顶呆毛每 `3.5–6.5s` 慢速轻晃；右下贴底长发丝每 `5–9s` 纯水平微风轻摆（底边贴紧不露平切口）；每 `3.2–7s` 自动眨眼 `150ms`。
-- **脸颊微醺腮红**：按压本体、独立戳/长按耳与呆毛、摸摸头、触发彩蛋或对话完成时，浅蜜桃双斜杠腮红以 `1.8s → 2.0s → 2.4s` 慢速升温淡退。
-- **AI 工作态星晶薄光边**：通过 CDP 每 `500ms` 监测宿主取消按钮状态，仅 AI 真正工作期间 `1.4s` 缓亮贴边薄光边与头/胸饰星辉并常亮，结束后 `1.6s` 缓灭。
+> 仓库内**不含任何预编译 `.exe` / `.dll`**；安装脚本会调用 Windows 自带的 `.NET Framework 4 csc.exe` 在本机 1 秒现场编译原生组件，无需安装 Visual Studio 或 .NET SDK。
 
-### 2. 鼠标交互拆分（本体 / 耳朵与呆毛 / 侧键 / 气泡 / 滚轮）
+### 方式一：AI 一键安装（推荐）
 
-| 区域 | 动作 | 效果 |
-|---|---|---|
-| **左右耳（左键）** | 单击 / 长按 | `137×115` 像素级命中图（扣除头部与小发包前景，兼容左右镜像）；仅对应单耳（带同侧小发包）压至 `step=8`、长按保持、松手回弹；**不压扁本体、不拖拽、不弹气泡** |
-| **呆毛（左键）** | 单击 / 长按 | 仅呆毛独立压下（`-28° / dy +3.0% / scaleY 0.82`），长按保持、松手阻尼弹性回摆；**不触发本体与气泡** |
-| **悬停猫娘（侧键）** | **前侧键 / 后侧键** | **前侧键（`button=4`）→ 视觉左耳、后侧键（`button=3`）→ 视觉右耳**（自动适配左右翻转），支持单按、长按与**双侧键齐按双耳同时下压**；仅走桌宠自身窗口事件，无任何全局系统钩子，切去游戏自动隐藏、不影响游戏 |
-| **猫娘本体（不含耳/呆毛）** | 左键单击 | 气泡关闭时：压扁回弹 → **从小到大逐级弹出「Gemini 额度」气泡**并即时刷新；气泡开启时：**不切页**，猫娘与气泡同步压扁 Q 弹并重置自动收起计时 |
-| **猫娘本体** | 拖拽 / 快速划过 | 窗口内自由拖动 + 贴边吸附 + 自动翻转朝向；非按压连续划过触发「摸摸头」动画与腮红 |
-| **头顶气泡** | 悬停 / 左键单击 | 悬停暂停自动收起；单击在 **「Gemini 额度」→「星语猫娘」随机台词 → 从大到小逐级收起** 间流转 |
-| **全局命中区** | 滚轮 / 右键 / 快捷键 | 滚轮切页或缩放（`140–360px`）；右键打开四色自绘快捷菜单；`Ctrl+Alt+G` 唤回、`Ctrl+Alt+Shift+G` 关闭鼠标穿透并唤回 |
-
-### 3. 额度读取、Token 播报、主题设置与性能架构
-- **实时 Gemini 额度 & 一键开启**：经本机 CDP 拉取 5 小时与 1 周剩余百分比并持久化至 `~/.antigravity-cat-widget/quota-cache.json`，支持低额度预警与手动记录覆盖；未开启调试端口时可在右键菜单或设置页点击**「开启实时额度」**，一键带 `--remote-debugging-port=0` 重开宿主并可选绑定伴随启动快捷方式。
-- **单轮 Token 播报与等待提醒**：监听 Antigravity 本地会话日志（`fs.watch` + 偏移增量读取），单轮对话完成时庆祝跳并播报整轮总输入/输出/缓存 Token 与步数；检测到 `ask_question` 自动弹出「等待你的确认」提醒。
-- **4 套气泡主题 & 全窗口联动**：星晶蓝紫（默认）/ 樱粉浅暖 / 经典蓝白 / 星空暗夜；切换时头顶气泡、自绘右键快捷菜单与定制设置面板实时同步换色；支持自定义闲聊台词、4 套 CC0/MIT 无争议音色、本地音频导入与设置一键撤回。
-- **双渲染管线（默认 GPU + 防小飞机兼容模式）**：默认 GPU 硬件加速，`53` 张立绘经预乘 Alpha 无损缩裁至 `686×573`（磁盘 `-65%`、纹理内存 `-75%`），`30fps` 统一调度 + 不可见深度休眠 + 透明窗黑框/冻结自愈看门狗；在设置面板或右键菜单勾选**「兼容模式（防小飞机叠加）」**即可切回纯 CPU 软渲染（完全绕开 DXGI 交换链、免疫 RTSS/录屏叠字）。
-- **无皮肤 + 轻量化托盘防锁死 + 伴随启停**：原生 Win32 追踪器 `ForegroundHost.cs` 基于 WinEvent 钩子实现零轮询贴边跟随（「贴边跟随」为硬依赖，缺少 `ForegroundHost.exe` 时弹窗提示并退出）；保留轻量化系统托盘猫耳图标与全局快捷键防止开启鼠标穿透后锁死，并新增 `BrandExe.cs` / `WidgetBrandCarrier.cs` 为进程写入标准多尺寸图标与 `Star Neko` 英文标识。
-
----
-
-## 更新记录（2026-11-25）
-
-### 1. 性能与稳定性大幅优化
-- **立绘分层无损缩裁与按需预加载**：`layers/` 下 53 张透明图层在预乘 Alpha 空间下无损缩裁至 `686×573`（仍保留 `2×+` 超采余量，磁盘由 `7.10 MB` 降至 `2.47 MB`、解码纹理内存降 `75%`），仅预加载实际使用的 `gem_4..6.png`，并合并辅助子进程（常驻进程由 `5` 个精简为 `3` 个）。
-- **双渲染管线**：新增默认 GPU 硬件加速与一键「兼容模式（防小飞机 RTSS / 录屏叠字）」切换（兼容模式跳过亚像素微缩放并保持静态滤镜缓存命中，实测待机 CPU 时间低至 `0.17s / 3s`，较原版降幅 **`> 93%`**）。
-- **调度、休眠与自愈**：移除 `180Hz` 空转 CSS 无限动画，改由 `renderer.cjs` 按 `30fps` 统一调度；分离 `...` 思考气泡发光底座与清晰前景缓存；宿主不可见/最小化时自动降至 `1fps` 并暂停定时器与 `rAF`；新增透明窗黑框/冻结/空白事件驱动自愈看门狗 `verifySurfaceOnce()`。
-- **I/O 与守护链路降耗**：`transcript-adapter.cjs` 改为 `fs.watch` + 字节偏移增量尾读（10 次扫描耗时 `0.28 ms`）；新增 `SharedHostCdp` 单连接复用 WebSocket 与 `WeakRef` 服务缓存；`ForegroundHost.cs` 引入 WinEvent 钩子瞬时唤醒并支持双开并排不抢层级。
-
-### 2. 交互体验、标识与防掉线升级
-- **全面正名「星语猫娘」与四色主题全端联动**：清理全仓旧称，新增无边框圆角自绘右键快捷菜单（收起闲置 `12s` 自动销毁释放内存），气泡、菜单与设置面板（含深色原生控件 `color-scheme: dark`）四色实时同步。
-- **标准图标重制与英文进程标识**：使用预乘 Alpha Lanczos 将 `app-icon.ico` 重制为 `16 / 24 / 32 / 48 / 64 / 128 / 256` 七尺寸标准图标；新增零依赖原生工具 `BrandExe.cs` / `WidgetBrandCarrier.cs`，统一任务管理器标识为 `Star Neko Widget` / `Star Neko Tracker` / `Star Neko Guard`，设置面板第 1 节新增实时 `PID` 与内存拆解。
-- **一键开启实时额度、更新防掉线与防锁死**：菜单与设置页一键定位宿主并带 `--remote-debugging-port=0` 重开且支持绑定桌面/开始菜单快捷方式；`LaunchAntigravityWithWidget.cs` 新增 `45s` 更新宽限、识别 `Update` / `AntigravitySetup` 自动重连、`--wait-pid` 热重启接管与 `runtime\lockfile` 独立模式存活判定；增加右下角托盘猫耳图标防止穿透锁死。
-
-### 3. 无争议音效清晰度增强 & Bug 修复
-- **4 套 CC0 / MIT 安全音色体验增强**：不引入任何第三方/未确认授权音频；将 `bubble-pop`、`soft-spring`、`wood-tap` 及事件提示音内置 `gain` 从 `0.5~0.85` 提升至 `0.9~0.95`（`defaultVolume: 0.5`），并在 `renderer.cjs` 改为活跃音轨集合 + 载荷缓存，快速点击时松开音不再打断按压音。
-- **全链路巡检修复**：修复「步骤提示直到主动收起（`0ms`）」被 `|| 6500` 覆盖的 Bug、修复托盘打开确认弹窗落到后台的问题、修复缓存菜单换色闪帧与切换兼容模式热重启失效的问题。
-
----
-
-## 安装与运行（Windows 10 / 11）
-
-> 仓库内**不含任何预编译 `.exe`**，脚本会直接调用 Windows 自带的 `.NET Framework 4 csc.exe` 在本机 1 秒编译，无需额外安装 Visual Studio 或 .NET SDK。
-
-### AI 一键安装（推荐）
-
-本仓库根目录内置了给 AI Agent 使用的标准化安装规程 [AGENTS.md](AGENTS.md)（包含环境自检、硬依赖校验、国内镜像安装、禁止误覆盖原版与逐项验收步骤）。
-
-把仓库下载到本地后，直接打开你的 AI 编程工具（如 Antigravity / Claude Code / Codex 等），发送一句：
+仓库根目录内置了给 AI Agent 使用的标准化安装与验收规程 [`AGENTS.md`](AGENTS.md)（含环境自检、硬依赖校验、国内镜像安装、防误覆盖保护与逐项验收）。下载仓库后，直接在 Antigravity / Claude Code / Codex 中发送：
 
 > 请阅读仓库根目录的 `AGENTS.md`，严格按规程帮我安装并验收这个桌宠。
 
-### 手动安装
+### 方式二：PowerShell 手动安装
 
-在项目根目录打开 PowerShell：
+在仓库根目录打开 PowerShell：
 
 ```powershell
 # 推荐：安装独立版（自动编译原生助手 + 自动配置国内 Electron 镜像，不碰原版）
@@ -92,28 +42,110 @@ powershell -ExecutionPolicy Bypass -File ".\一键安装并启动.ps1" -Standalo
 powershell -ExecutionPolicy Bypass -File ".\一键安装并启动.ps1" -Force
 ```
 
-> 说明：
-> - 若本机已安装原版 `AntigravityStarSuite`，直接运行不带参数的 `一键安装并启动.ps1` 会拒绝覆盖并提示你在 `-Standalone` 与 `-Force` 之间二选一；
-> - 独立模式需要 Node.js `>=18`，脚本会自动设置 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`（若你已自定义则保留你的值），失败后自动清缓存并切 `https://registry.npmmirror.com` 重试一次；
-> - 也可分步手动执行：`powershell -ExecutionPolicy Bypass -File ".\编译原生助手.ps1"` → `cd app` → `npm install` → `npm start`。
+> 安装说明：
+> - **防误覆盖保护**：检测到本机已装原版 `AntigravityStarSuite` 且未传参数时，脚本会主动中止并提示在 `-Standalone` 与 `-Force` 间二选一；
+> - **国内镜像自动加速**：独立模式需 Node.js `>= 18`，默认配置 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/`（尊重已有环境变量），失败时自动清缓存并切 `https://registry.npmmirror.com` 重试一次；
+> - **分步运行**：也可手动执行 `powershell -ExecutionPolicy Bypass -File ".\编译原生助手.ps1"` → `cd app` → `npm install` → `npm start`。
 
-### 启用实时 Gemini 额度 & AI 工作态星晶光边（重要）
+### 开启实时 Gemini 额度与 AI 发光（可选）
 
-实时额度与工作态薄光边依赖 Antigravity 的本机调试端口文件（`%APPDATA%\Antigravity\DevToolsActivePort`）：
-- **方式 1（推荐，同时获得伴随启停）**：运行完上面脚本后，以后直接双击编译生成的 `LaunchAntigravityWithWidget.exe` 打开 Antigravity（会自动寻找本机 `Antigravity.exe`、附带 `--remote-debugging-port=0` 启动，并在关闭 Antigravity 后自动退出桌宠；如装在特殊路径，可设环境变量 `ANTIGRAVITY_EXE` 指定）。
-- **方式 2（手动加启动参数）**：右键你的 `Antigravity` 快捷方式 → 属性 → 在「目标」末尾加空格和 `--remote-debugging-port=0`。
-- 若不加该参数，贴边跟随、53 层动效、耳/呆毛/侧键交互与日志 Token 播报仍全部正常工作，仅 5 小时/1 周实时额度会显示 `—`（可在设置面板开启手动额度记录）。
+实时额度与 AI 工作态星晶光边依赖 Antigravity 的本机调试端口（`%APPDATA%\Antigravity\DevToolsActivePort`），**不开启不影响贴边跟随、53 层动效、摸摸头与日志 Token 播报**。开启方式任选其一：
 
-> 注：本改版固定 `hostWindowOnly: true`，贴边跟随依赖 `ForegroundHost.exe`（缺少时启动会弹出原生错误框并退出，不会降级为普通桌面桌宠）；保留轻量化右下角系统托盘图标用于在开启鼠标穿透时随时唤回设置与菜单。
+1. **菜单一键开启（最简单）**：右键猫娘 → 点击 **「开启实时额度」**，自动带 `--remote-debugging-port=0` 重开宿主，并可一键绑定桌面/开始菜单快捷方式（保留 Antigravity 原生图标）。
+2. **伴随启动器**：编译完成后直接双击 `LaunchAntigravityWithWidget.exe` 打开 Antigravity（自动找寻宿主、开端口、拉起桌宠，关闭 Antigravity 后即刻伴随退出；特殊安装路径可设环境变量 `ANTIGRAVITY_EXE`）。
+3. **手动参数**：在 `Antigravity` 快捷方式「目标」末尾添加 ` --remote-debugging-port=0`。
+
+---
+
+## 核心功能与交互
+
+### 1. 53 层无损动态立绘与状态演出
+
+- **原画零改动**：`frames/` 原图完整保留，脸部与眼睛零修改，静止叠合像素误差为 `0`；`layers/` 全部 53 张图层在预乘 Alpha 空间无损缩裁至 `686×573`（保留 `2×+` 超采余量，磁盘体积 `-65%`、纹理内存 `-75%`）。
+- **常态灵动微动**：每 `7–14s` 随机触发 5 种猫耳动作（左耳 / 右耳 / 双耳 / 左先右后 / 右先左后，双侧小发包 `bunL/bunR` 同步 Q 弹跟随）；头顶呆毛每 `3.5–6.5s` 慢晃、右下发丝每 `5–9s` 微风轻摆、每 `3.2–7s` 自动眨眼 `150ms`。
+- **微醺腮红 & 星晶薄光边**：互动、摸摸头、彩蛋或单轮完成时触发 `1.8s → 2.0s → 2.4s` 渐显淡退腮红；AI 工作期间 `1.4s` 缓亮轮廓薄紫光边与头/胸饰星辉，结束后 `1.6s` 缓灭。
+
+### 2. 像素级拆分鼠标交互 & 防误触「摸摸头」
+
+| 区域 | 操作 | 交互效果 |
+|---|---|---|
+| **左右猫耳** | 左键单击 / 长按 | `137×115` 像素级命中图（扣除头部与发包前景，兼容左右镜像）；仅对应单耳与同侧发包压下回弹，**不压本体、不拖拽、不弹气泡** |
+| **头顶呆毛** | 左键单击 / 长按 | 仅呆毛独立压弯、松手阻尼弹性回摆，不触发本体与气泡 |
+| **悬停猫娘** | **鼠标前 / 后侧键** | **前侧键（`button=4`）→ 视觉左耳、后侧键（`button=3`）→ 视觉右耳**（支持双侧键齐压双耳）；仅监听桌宠自身窗口消息，零全局钩子、不干扰游戏 |
+| **头顶发冠 / 刘海** | **快速左右搓揉** | 限定在发冠与刘海弧线区，`900ms` 内完成两折快速往返（`≥ 550 px/s`）触发 `1.8s` 摸摸头演出（腮红 + 爱心 + 歪头蹭蹭 + 得意表情 + 双耳错拍 + 呆毛发丝连摆）；慢晃、单向划过或划过眼睛/脸颊零误触（被动 `12s` 冷却；右键菜单「摸摸头 ♡」无冷却随时触发） |
+| **猫娘本体** | 左键单击 / 拖拽 | 气泡关闭时单击压扁回弹并逐级弹出「Gemini 额度」气泡；气泡开启时连同气泡同步 Q 弹压扁；按住自由拖动并贴边吸附、自动翻转朝向 |
+| **头顶气泡** | 悬停 / 左键单击 | 悬停暂停自动收起；单击在 **「Gemini 额度」→「星语猫娘」随机台词 → 逐级收起** 间循环 |
+| **全局交互区** | 滚轮 / 右键 / 快捷键 | 滚轮切页或缩放（`140–360px`）；右键呼出自绘快捷菜单；`Ctrl+Alt+G` 唤回设置、`Ctrl+Alt+Shift+G` 一键解除鼠标穿透 |
+
+<p align="center">
+  <img src="docs/media/07-headpat-zones.png" alt="摸摸头防误触触发区与演出态对照" width="92%">
+</p>
+
+### 3. 四色自绘菜单、清晰防糊气泡与三端猫娘图标
+
+- **四套主题三端实时联动**：内置 **星晶蓝紫（`crystal`）**、**樱粉浅暖（`sakura`）**、**经典蓝白（`ocean`）**、**星空暗夜（`night`）**，切换时头顶气泡、无边框右键菜单与定制设置面板同步换色。
+- **智能避让 & 可拖拽右键菜单**：弹出时根据猫娘停靠位置自动向左右外侧避让（绝不遮挡角色头部），支持按住顶部标题栏自由拖拽位置，无外扩脏影（暗色背景下边缘纯净透明），关闭 `12s` 后自动销毁释放内存。
+- **静止清晰文字 + 2× 超采样按压防糊**：对话框文字与进度条在静止时完全固定不晃眼；气泡卡片采用内部 `2×` 超采样光栅化，按压猫娘/气泡时壳与文字同步 Q 弹压扁，在高分屏（`125%/150%/200%` DPI）与 GPU 硬件加速下依然锐利不发糊。
+- **七尺寸猫娘头像 & 进程正名**：重制 `16 / 24 / 32 / 48 / 64 / 128 / 256px` 七尺寸锐化 `app-icon.ico`，配合独立 `AppUserModelId` 与原生 `BrandExe.cs` 贴牌工具，在任务管理器（`Star Neko Widget` / `Star Neko Tracker` / `Star Neko Guard`）、Windows 任务栏与右下角系统托盘三端清晰呈现。
+
+<p align="center">
+  <img src="docs/media/08-menu-themes-showcase.png" alt="四套主题无边框自绘右键菜单实拍" width="92%">
+</p>
+
+<p align="center">
+  <img src="docs/media/09-icon-branding-showcase.png" alt="七尺寸猫娘图标三端实拍对照" width="92%">
+</p>
+
+---
+
+## 性能与底层架构
+
+- **双渲染管线（默认 GPU + 防小飞机兼容模式）**：默认 GPU 硬件加速保留全部 30fps 灵动特效；若开启 MSI Afterburner / RTSS 全局 OSD 出现帧率字叠在猫娘上，在菜单或设置页勾选 **「兼容模式（防小飞机叠加）」** 即可热重启切为纯 CPU 软渲染，彻底免疫叠加并降至 `0 MB` 显存。
+- **深度休眠与自愈看门狗**：宿主最小化或不可见时自动休眠暂停动画与定时器；事件驱动 `verifySurfaceOnce()` 看门狗在唤醒、切屏、DPI 变化或 GPU 重启后自动巡检黑框/空白/冻结并无感自愈。
+- **轻量化低打扰追踪器（`ForegroundHost.cs`）**：窗口贴边跟随采用进程外异步 `WinEvent` 钩子（不注入任何进程，不影响反作弊），位置与拖拽钩子定向绑定至 Antigravity 单进程 `PID`（无全系统 `0x8004` 高频重排钩子），检测到全屏游戏（`SHQueryUserNotificationState`）时自动卸载宿主钩子进入深度低耗等待；贴边跟随为硬依赖，缺失时明确弹窗提示不降级。
+- **低开销 I/O、CDP 复用与伴随秒退**：会话日志采用 `fs.watch` + 偏移增量尾读（单轮完成播报总 Token 与步数、`ask_question` 触发等待确认提醒），账本快照增加版本缓存消除高频排序；`SharedHostCdp` 单 WebSocket 连接复用与 `WeakRef` 服务缓存；关闭 Antigravity 后守护进程在 `1.5–3s` 内即刻清理全部桌宠进程，无后台残留；托盘图标 + 全局快捷键彻底防止鼠标穿透锁死。
+- **纯净音效**：仅内置 4 套可追溯 CC0 / MIT 安全音色（活跃音轨管理，连续点击不打断前音），支持在设置面板自由导入本地 `.wav / .mp3 / .ogg / .m4a` 自定义音效。
+
+---
+
+## 更新日志
+
+### v1.11（2026-11-25 · 稳定性与体验精修版）
+- **气泡视觉精修**：移除头顶气泡内文字的周期性上下晃动，保持阅读清晰稳定；气泡卡片改用内部 `2×` 超采样光栅化，完整保留按压时壳与字同步 Q 弹压扁，彻底消除 GPU 硬件加速与高 DPI 下按压文字发糊的问题。
+- **原生追踪器防打扰与减负（`ForegroundHost.cs`）**：将 `LOCATIONCHANGE`（`0x800B`）与拖拽钩子缩窄至 Antigravity 单宿主 `PID`，移除全系统高频 `0x8004` 重排钩子，新增全屏游戏自动卸载宿主钩子机制与 PID 进程名缓存，并清理无效 Z-order 遍历与 `/warn:4` 编译警告（实测追踪进程 CPU 趋近 `0%`、独占内存降幅 `~65%`）。
+- **边界 Bug 全量修复**：
+  - 修复菜单主动「摸摸头 ♡」未同步渲染端冷却计时导致 12s 内搓头把冷却误延长至 ~24s 的问题，并支持连续点击重播歪头蹭蹭动画；
+  - 修复带 `--software-render` / `--force-gpu` 参数启动时无法从菜单切换兼容模式的问题；
+  - 修复无宿主状态下热重启挂件 / 切兼容模式 30 秒后被守护进程误杀的问题；
+  - 修复拖动右键菜单标题栏途中 `Alt+Tab` 失焦导致菜单滞留屏幕的问题；
+  - 修复等待确认气泡未尊重「直到主动收起（`0ms`）」设置的问题；
+  - 为 `UsageLedger.getSnapshot()` 增加版本缓存，消除每次状态广播的全量历史排序开销。
+
+### v1.1（2026-11-25 · 性能重制、摸摸头与自绘菜单版）
+- 53 层立绘预乘 Alpha 无损缩裁至 `686×573`（磁盘 `-65%`、纹理 `-75%`），合并网络辅助进程，引入默认 GPU + 防小飞机兼容模式双管线、不可见休眠与黑框/冻结自愈看门狗。
+- 新增「摸摸头」全套动态演出与发冠防误触搓揉手势；全面正名「星语猫娘」，推出四色三端联动无边框自绘右键菜单（自动侧边避让、标题栏拖拽、无暗底脏影、闲置 `12s` 自动释放）。
+- 重制 7 尺寸猫娘 `app-icon.ico`，新增 `BrandExe.cs` / `WidgetBrandCarrier.cs` 与右下角托盘防穿透锁死；新增一键「开启实时额度」、开始菜单快捷方式自愈及宿主关闭即刻伴随退出。
+- 提升 4 套 CC0/MIT 公开音色清晰度与多音轨并发表现。
+
+### v1.0
+- 完成 53 层动态立绘拆分、左右耳/呆毛像素级独立按压、鼠标侧键控耳、AI 工作态星晶光边与基础贴边跟随。
+
+---
+
+## 开源与素材权利声明
+
+- **软件代码**：继承上游 [LICENSE](LICENSE)（MIT License，Copyright (c) 2026 Monokumakuki），本仓库二次开发代码同样遵循 MIT。第三方依赖说明见 [app/NOTICE.md](app/NOTICE.md)。
+- **美术素材**：详见 [app/ASSETS.md](app/ASSETS.md)。软件 MIT 许可**不适用于角色立绘图片与第三方标识**；角色设计参考署名 **ZipZipPipe**。角色图层使用已获原作者 Monokumakuki 许可（2026-11-22），仅用于本项目非商用展示与运行，不授予独立再许可。**如任何权利人对图片展示或包含存在异议，请通过本仓库 Issues 联系，将立即下架或调整。**
+- **音效素材**：本公开版仅保留上游可记录许可的 4 套 CC0 / MIT 安全音色（已移除全部第三方游戏/未验证授权音频）；用户可在设置面板中自行导入本地音频。
+
+---
 
 ## English
 
-An unofficial 53-layer split-sprite fork of
-[Monokumakuki/Antigravity-Star-Suite](https://github.com/Monokumakuki/Antigravity-Star-Suite):
-per-part hit testing for ears and ahoge, mouse side-button control, and host-window following.
+**Star Neko Widget (`v1.11`)** is an unofficial 53-layer split-sprite desktop catgirl companion for Google Antigravity on Windows, forked from [Monokumakuki/Antigravity-Star-Suite](https://github.com/Monokumakuki/Antigravity-Star-Suite).
 
-- **Requirements**: Windows 10/11 x64, Node.js ≥ 18 (standalone mode), .NET Framework 4 (built into Windows).
+- **Highlights**: 53 lossless pre-multiplied layers (`686×573`), pixel-accurate ear & ahoge press, mouse side-button ear control, crown-only anti-misclick headpat (`≥ 550 px/s`), 4-theme synced frameless context menu with smart avoidance & header drag, `2×` supersampled crisp squish bubbles, GPU + RTSS-safe software dual rendering pipeline, host-PID-scoped `WinEvent` tracking (auto-suspends during fullscreen games), and instant companion exit when Antigravity closes.
+- **Requirements**: Windows 10/11 x64, Node.js ≥ 18 (standalone mode), built-in .NET Framework 4 (`csc.exe`, zero prebuilt `.exe`/`.dll` in repo).
 - **Quick start**: `powershell -ExecutionPolicy Bypass -File ".\一键安装并启动.ps1" -Standalone`
-- **License**: code is MIT; character art is **not** MIT and is used with the original author's permission, non-commercial only.
-
-AI agents: read [`AGENTS.md`](AGENTS.md) and follow it step by step.
+- **AI installation**: point your coding agent to [`AGENTS.md`](AGENTS.md).
+- **License**: Code is MIT; character artwork is **not** MIT and is used with the original author's permission for non-commercial use only.

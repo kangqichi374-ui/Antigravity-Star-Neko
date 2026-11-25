@@ -133,8 +133,8 @@ internal static class LaunchAntigravityWithWidget {
     }
 
     // If user's Desktop Antigravity.lnk already points to LaunchAntigravityWithWidget.exe,
-    // heal Start Menu Antigravity.lnk whenever an Antigravity update resets it back to raw Antigravity.exe.
-    private static void RepairStartMenuShortcutIfOptedIn() {
+    // heal Start Menu Antigravity.lnk whenever an Antigravity update resets it back to raw Antigravity.exe or loses its native icon.
+    private static void RepairStartMenuShortcutIfOptedIn(string agyExe) {
         try {
             string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
             string startPrograms = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
@@ -143,6 +143,7 @@ internal static class LaunchAntigravityWithWidget {
             string desktopLnk = Path.Combine(desktop, "Antigravity.lnk");
             if (!File.Exists(desktopLnk)) return;
 
+            string desiredIcon = (!string.IsNullOrEmpty(agyExe) && File.Exists(agyExe)) ? (agyExe + ",0") : null;
             Type shellType = Type.GetTypeFromProgID("WScript.Shell");
             if (shellType == null) return;
             object shell = Activator.CreateInstance(shellType);
@@ -169,10 +170,18 @@ internal static class LaunchAntigravityWithWidget {
                         if (sSc == null) continue;
                         Type scType = sSc.GetType();
                         string curTarget = scType.InvokeMember("TargetPath", BindingFlags.GetProperty, null, sSc, null) as string;
-                        if (!string.Equals(curTarget, dTarget, StringComparison.OrdinalIgnoreCase)) {
-                            scType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, sSc, new object[] { dTarget });
-                            scType.InvokeMember("Arguments", BindingFlags.SetProperty, null, sSc, new object[] { dArgs ?? "" });
-                            scType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, sSc, new object[] { string.IsNullOrEmpty(dWork) ? Path.GetDirectoryName(dTarget) : dWork });
+                        string curIcon = scType.InvokeMember("IconLocation", BindingFlags.GetProperty, null, sSc, null) as string;
+                        bool needTarget = !string.Equals(curTarget, dTarget, StringComparison.OrdinalIgnoreCase);
+                        bool needIcon = !string.IsNullOrEmpty(desiredIcon) && !string.Equals(curIcon, desiredIcon, StringComparison.OrdinalIgnoreCase);
+                        if (needTarget || needIcon) {
+                            if (needTarget) {
+                                scType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, sSc, new object[] { dTarget });
+                                scType.InvokeMember("Arguments", BindingFlags.SetProperty, null, sSc, new object[] { dArgs ?? "" });
+                                scType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, sSc, new object[] { string.IsNullOrEmpty(dWork) ? Path.GetDirectoryName(dTarget) : dWork });
+                            }
+                            if (needIcon) {
+                                scType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, sSc, new object[] { desiredIcon });
+                            }
                             scType.InvokeMember("Save", BindingFlags.InvokeMethod, null, sSc, null);
                         }
                     } catch {
@@ -285,13 +294,6 @@ internal static class LaunchAntigravityWithWidget {
         } finally {
             foreach (var p in list) p.Dispose();
         }
-    }
-
-    private static bool AnyUpdaterAlive(int sessionId) {
-        foreach (var name in new[] { "Update", "AntigravitySetup" }) {
-            if (AnyInSession(name, sessionId)) return true;
-        }
-        return false;
     }
 
     private static bool AnyInSession(string processName, int sessionId) {
@@ -451,8 +453,8 @@ internal static class LaunchAntigravityWithWidget {
             else passthroughArgs.Add(a);
         }
 
-        RepairStartMenuShortcutIfOptedIn();
         string agyExe = FindAntigravityExe();
+        RepairStartMenuShortcutIfOptedIn(agyExe);
 
         string widgetExe = Path.Combine(baseDir, "StarWidget.exe");
         string widgetBaseArgs = "";
@@ -516,7 +518,7 @@ internal static class LaunchAntigravityWithWidget {
         if (relaunchHost) {
             if (string.IsNullOrEmpty(agyExe)) return;
             CloseExistingAntigravity(sessionId);
-            RepairStartMenuShortcutIfOptedIn();
+            RepairStartMenuShortcutIfOptedIn(agyExe);
             StartClean(agyExe, Path.GetDirectoryName(agyExe), "--remote-debugging-port=0");
             Thread.Sleep(1200);
         } else if (!attachOnly && !string.IsNullOrEmpty(agyExe)) {
@@ -557,6 +559,12 @@ internal static class LaunchAntigravityWithWidget {
             widgetProc.Dispose();
         }
 
+        // If invoked purely to hot-restart the widget (compatMode toggle / restart) while no Antigravity host is running,
+        // exit cleanly instead of entering the 30s host-wait loop that would kill the newly relaunched widget.
+        if (attachOnly && waitPid > 0 && GetPrimaryHostPid(sessionId) == 0) {
+            return;
+        }
+
         bool isOwner;
         using (var mutex = new Mutex(true, "Local\\AntigravityStarWidgetLifecycle", out isOwner)) {
             if (!isOwner) return;
@@ -578,10 +586,10 @@ internal static class LaunchAntigravityWithWidget {
                     : (IsPidAlive(spawnedWidgetPid) || IsWidgetLockHeld(effectiveDataDir) || AnyInSession("ForegroundHost", sessionId));
 
                 if (hostAlive) {
-                    bool hostRestarted = hostSeen && (hostGoneCount > 0 || (lastHostPid > 0 && curHostPid != lastHostPid));
+                    bool hostRestarted = hostSeen && lastHostPid > 0 && curHostPid != lastHostPid;
                     if (hostRestarted) {
-                        // Antigravity restarted (e.g. in-app --updated relaunch): heal Start Menu shortcut & re-ensure widget!
-                        RepairStartMenuShortcutIfOptedIn();
+                        // Antigravity restarted within one poll tick: heal Start Menu shortcut & re-ensure widget!
+                        RepairStartMenuShortcutIfOptedIn(agyExe);
                         if (!widgetAlive) {
                             var wp = StartClean(widgetExe, widgetWorkDir, startWidgetArgs);
                             if (wp != null) {
@@ -594,14 +602,8 @@ internal static class LaunchAntigravityWithWidget {
                     hostSeen = true;
                     hostGoneCount = 0;
                 } else if (hostSeen) {
-                    if (AnyUpdaterAlive(sessionId)) {
-                        hostGoneCount = 1;
-                    } else {
-                        hostGoneCount++;
-                    }
-                    // Allow ~45s silent grace window (widget window is already hidden by ForegroundHost in 50ms)
-                    // so even slow Antigravity updates reattach automatically without losing the catgirl.
-                    if (hostGoneCount >= 30) {
+                    hostGoneCount++;
+                    if (hostGoneCount >= 1) {
                         StopWidget(widgetExe, widgetBaseArgs, extraFlagsStr, isStarWidgetExe, spawnedWidgetPid, sessionId);
                         break;
                     }

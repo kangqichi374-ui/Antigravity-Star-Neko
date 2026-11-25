@@ -103,14 +103,14 @@ class WidgetStateMachine {
     this.triggerTransient("release", 560);
   }
 
-  handlePetting() {
+  handlePetting(force = false) {
     const now = Date.now();
-    if (now - this.lastPettingTime < this.pettingCooldownMs) {
-      return false; // Cooldown active, don't spam petting
+    if (!force && now - this.lastPettingTime < this.pettingCooldownMs) {
+      return false; // Cooldown active for passive hover, don't spam petting
     }
     this.lastPettingTime = now;
-    // Petting animation: 1600ms
-    this.triggerTransient("petting", 1600);
+    // Petting animation: 1800ms
+    this.triggerTransient("petting", 1800);
     return true;
   }
 
