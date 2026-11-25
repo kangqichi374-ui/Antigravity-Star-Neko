@@ -77,7 +77,7 @@ powershell -ExecutionPolicy Bypass -File ".\编译原生助手.ps1"
 **期望输出**（必须真的出现）：
 
 ```
-编译完成：ForegroundHost.exe 与 LaunchAntigravityWithWidget.exe 已生成。
+编译完成：ForegroundHost.exe、LaunchAntigravityWithWidget.exe 与进程图标签名工具已生成。
 ```
 
 **独立复核**（不要只信上面那句话）：

@@ -20,7 +20,7 @@ function Fail-Compile {
     Write-Host "【分别怎么处理】" -ForegroundColor Cyan
     Write-Host "  1. .NET 4 缺失：安装 .NET Framework 4.8（或运行 winget install Microsoft.DotNet.Framework.DeveloperPack_4），装完重跑脚本。"
     Write-Host "  2. 杀软拦截 csc 写文件：把本仓库目录加入 Windows Defender / 杀软排除项后重试。"
-    Write-Host "  3. 文件被占用：先结束正在占用该路径的 ForegroundHost 进程后再重试。"
+    Write-Host "  3. 文件被占用：先结束正在占用该路径的 ForegroundHost / LaunchAntigravityWithWidget 进程后再重试。"
     Write-Host ""
     exit 1
 }
@@ -33,12 +33,16 @@ if (-not (Test-Path -LiteralPath $csc)) {
     Fail-Compile -What "未找到 .NET Framework 4 编译器（csc.exe），无法编译贴边跟随组件 ForegroundHost.exe。"
 }
 
+$iconPath = Join-Path $PSScriptRoot "app\Antigravity-Cat-Widget\assets\app-icon.ico"
+$hasIcon = Test-Path -LiteralPath $iconPath
+
 function Invoke-CscBuild {
     param(
         [string]$TargetType,
         [string]$SrcPath,
         [string]$OutPath,
-        [string]$Label
+        [string]$Label,
+        [bool]$UseIcon = $true
     )
     if (-not (Test-Path -LiteralPath $SrcPath)) {
         Fail-Compile -What "找不到源码文件：$SrcPath"
@@ -48,7 +52,12 @@ function Invoke-CscBuild {
     $output = ""
     $code = 1
     try {
-        $raw = & $csc /nologo "/target:$TargetType" /optimize+ "/out:$OutPath" $SrcPath 2>&1
+        $cscArgs = @("/nologo", "/target:$TargetType", "/optimize+", "/out:$OutPath")
+        if ($UseIcon -and $hasIcon) {
+            $cscArgs += "/win32icon:$iconPath"
+        }
+        $cscArgs += $SrcPath
+        $raw = & $csc @cscArgs 2>&1
         $code = $LASTEXITCODE
         $output = ($raw | Out-String).Trim()
     } catch {
@@ -65,8 +74,9 @@ function Invoke-CscBuild {
     }
 }
 
-$fgSrc = Join-Path $PSScriptRoot "app\Antigravity-Cat-Widget\src\native\ForegroundHost.cs"
-$fgOut = Join-Path $PSScriptRoot "app\Antigravity-Cat-Widget\src\native\ForegroundHost.exe"
+$nativeDir = Join-Path $PSScriptRoot "app\Antigravity-Cat-Widget\src\native"
+$fgSrc = Join-Path $nativeDir "ForegroundHost.cs"
+$fgOut = Join-Path $nativeDir "ForegroundHost.exe"
 Invoke-CscBuild -TargetType "exe" -SrcPath $fgSrc -OutPath $fgOut -Label "ForegroundHost.exe"
 
 $launchSrc = Join-Path $PSScriptRoot "LaunchAntigravityWithWidget.cs"
@@ -75,4 +85,17 @@ if (Test-Path -LiteralPath $launchSrc) {
     Invoke-CscBuild -TargetType "winexe" -SrcPath $launchSrc -OutPath $launchOut -Label "LaunchAntigravityWithWidget.exe"
 }
 
-Write-Host "编译完成：ForegroundHost.exe 与 LaunchAntigravityWithWidget.exe 已生成。" -ForegroundColor Green
+$carrierSrc = Join-Path $nativeDir "WidgetBrandCarrier.cs"
+$carrierOut = Join-Path $nativeDir "WidgetBrandCarrier.dll"
+$brandSrc = Join-Path $nativeDir "BrandExe.cs"
+$brandOut = Join-Path $nativeDir "BrandExe.exe"
+if ((Test-Path -LiteralPath $carrierSrc) -and (Test-Path -LiteralPath $brandSrc)) {
+    Invoke-CscBuild -TargetType "library" -SrcPath $carrierSrc -OutPath $carrierOut -Label "WidgetBrandCarrier.dll"
+    Invoke-CscBuild -TargetType "exe" -SrcPath $brandSrc -OutPath $brandOut -Label "BrandExe.exe"
+    $localStarExe = Join-Path $PSScriptRoot "StarWidget.exe"
+    if (Test-Path -LiteralPath $localStarExe) {
+        & $brandOut $localStarExe $carrierOut
+    }
+}
+
+Write-Host "编译完成：ForegroundHost.exe、LaunchAntigravityWithWidget.exe 与进程图标签名工具已生成。" -ForegroundColor Green

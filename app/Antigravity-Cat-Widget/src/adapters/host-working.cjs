@@ -1,5 +1,5 @@
 const { EventEmitter } = require("node:events");
-const { discover, Cdp } = require("../../../shared/host.cjs");
+const { discover, Cdp, sharedHost } = require("../../../shared/host.cjs");
 
 function readHostWorking() {
   const els = document.querySelectorAll(
@@ -17,16 +17,33 @@ const EVAL_EXPR = "(" + readHostWorking.toString() + ")()";
 class HostWorkingAdapter extends EventEmitter {
   constructor(options = {}) {
     super();
+    this.useShared = !options.discover && !options.Client;
+    this.shared = options.shared || sharedHost;
     this.discover = options.discover || discover;
     this.Client = options.Client || Cdp;
-    this.pollMs = options.pollMs || 500;
+    this.activePollMs = options.pollMs || 500;
+    this.backgroundPollMs = options.backgroundPollMs || 1500;
     this.retryMs = options.retryMs || 3000;
+    this.hostVisible = true;
     this.active = false;
     this.connected = false;
     this.working = false;
     this.client = null;
     this.timer = null;
     this.busy = false;
+  }
+
+  setHostVisible(visible) {
+    const next = visible !== false;
+    if (this.hostVisible === next) return;
+    this.hostVisible = next;
+    if (this.active && next && !this.busy) {
+      this._schedule(80);
+    }
+  }
+
+  _currentPollMs() {
+    return (this.hostVisible || this.working) ? this.activePollMs : this.backgroundPollMs;
   }
 
   _update(connected, working) {
@@ -64,27 +81,32 @@ class HostWorkingAdapter extends EventEmitter {
     if (!this.active || this.busy) return;
     this.busy = true;
     try {
-      if (!this.client || this.client.closed) {
-        this.client = null;
-        const host = await this.discover();
-        if (!this.active) return;
-        if (!host?.target?.webSocketDebuggerUrl) {
-          this._update(false, false);
-          this._schedule(this.retryMs);
-          return;
-        }
-        this.client = new this.Client(host.target.webSocketDebuggerUrl, { handshakeTimeout: 2500 });
-        await this.client.ready;
-        if (!this.active) {
-          this.client.close();
+      let isWorking;
+      if (this.useShared) {
+        isWorking = Boolean(await this.shared.evaluate(EVAL_EXPR));
+      } else {
+        if (!this.client || this.client.closed) {
           this.client = null;
-          return;
+          const host = await this.discover();
+          if (!this.active) return;
+          if (!host?.target?.webSocketDebuggerUrl) {
+            this._update(false, false);
+            this._schedule(this.retryMs);
+            return;
+          }
+          this.client = new this.Client(host.target.webSocketDebuggerUrl, { handshakeTimeout: 2500 });
+          await this.client.ready;
+          if (!this.active) {
+            this.client.close();
+            this.client = null;
+            return;
+          }
         }
+        isWorking = Boolean(await this.client.evaluate(EVAL_EXPR));
       }
-      const isWorking = Boolean(await this.client.evaluate(EVAL_EXPR));
       if (!this.active) return;
       this._update(true, isWorking);
-      this._schedule(this.pollMs);
+      this._schedule(this._currentPollMs());
     } catch {
       if (this.client) {
         try { this.client.close(); } catch {}

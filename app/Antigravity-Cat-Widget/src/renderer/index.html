@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' file:; media-src 'self' file:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'none'">
-  <title>喵言喵语</title>
+  <title>Star Neko Widget</title>
   <link rel="stylesheet" href="../../assets/motions/gemini-widget.css">
   <link rel="stylesheet" href="widget.css">
 </head>
@@ -38,6 +38,9 @@
         </button>
       </div>
       <div class="agy-motion interactive" id="motion" tabindex="0" role="button" aria-label="猫娘，点击切换额度、对话与收起，拖动移动位置">
+        <div class="agy-effects agy-effects--glow" aria-hidden="true">
+          <img class="agy-effect agy-effect--thinking" id="thinking-glow" src="../../assets/ui/effects/thinking-dots.svg" alt="">
+        </div>
         <div class="agy-face">
           <img class="agy-layer agy-layer--ear-right" id="ear-right" src="../../assets/character-packs/gemini-star-v1/layers/earR_0.png" alt="" draggable="false">
           <img class="agy-layer agy-layer--ear-left" id="ear-left" src="../../assets/character-packs/gemini-star-v1/layers/earL_0.png" alt="" draggable="false">
@@ -50,8 +53,10 @@
           <img class="agy-layer agy-layer--part" id="bun-right" src="../../assets/character-packs/gemini-star-v1/layers/bunR_0.png" alt="" draggable="false">
           <img class="agy-layer agy-layer--part" id="hair-strand" src="../../assets/character-packs/gemini-star-v1/layers/strand_0.png" alt="" draggable="false">
           <img class="agy-layer agy-layer--blush" id="blush-fx" src="../../assets/character-packs/gemini-star-v1/layers/blush.png" alt="" draggable="false">
-          <img class="agy-layer agy-layer--gem" id="gem-fx" src="../../assets/character-packs/gemini-star-v1/layers/gem_1.png" alt="" draggable="false">
-          <img class="agy-effect agy-effect--thinking" src="../../assets/ui/effects/thinking-dots.svg" alt="">
+          <img class="agy-layer agy-layer--gem" id="gem-fx" src="../../assets/character-packs/gemini-star-v1/layers/gem_6.png" alt="" draggable="false">
+        </div>
+        <div class="agy-effects" aria-hidden="true">
+          <img class="agy-effect agy-effect--thinking" id="thinking-fx" src="../../assets/ui/effects/thinking-dots.svg" alt="">
           <img class="agy-effect agy-effect--sparkle" src="../../assets/ui/effects/sparkle.svg" alt="">
           <img class="agy-effect agy-effect--tear" src="../../assets/ui/effects/teardrop.svg" alt="">
           <img class="agy-effect agy-effect--heart" src="../../assets/ui/effects/heart.svg" alt="">

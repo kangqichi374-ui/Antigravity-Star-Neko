@@ -1,4 +1,4 @@
-const { app, BrowserWindow, screen, Menu, ipcMain, globalShortcut, powerMonitor, dialog } = require("electron");
+const { app, BrowserWindow, Tray, screen, Menu, ipcMain, globalShortcut, powerMonitor, dialog } = require("electron");
 const path = require("node:path"), os = require("node:os");
 const { SettingsManager } = require("../domain/settings.cjs");
 const { UsageLedger } = require("../domain/ledger.cjs");
@@ -8,38 +8,86 @@ const { AudioManager } = require("../domain/audio-manager.cjs");
 const { HostQuotaAdapter } = require("../adapters/host-quota.cjs");
 const { HostWorkingAdapter } = require("../adapters/host-working.cjs");
 const { ForegroundMonitor, hostPlacement, characterPlacement, snapToEdges, hasNativeHelper } = require("../domain/host-visibility.cjs");
+const { sharedHost } = require("../../../shared/host.cjs");
 
 const dataDir = process.argv.find(a => a.startsWith("--data-dir="))?.slice(11) || path.join(os.homedir(), ".antigravity-cat-widget");
 app.setPath("userData", path.join(dataDir, "runtime"));
-app.setName("喵言喵语桌宠");
-app.disableHardwareAcceleration();
+app.setName("Star Neko Widget");
+const earlySettings = new SettingsManager(path.join(dataDir, "settings.json"));
+const isCompatRender =
+  process.argv.includes("--software-render") ||
+  process.argv.includes("--disable-gpu") ||
+  (!process.argv.includes("--force-gpu") && earlySettings.get("compatMode") === true);
+app.commandLine.appendSwitch("enable-features", "NetworkServiceInProcess2");
+app.commandLine.appendSwitch("disable-features", "AudioServiceOutOfProcess,SpareRendererForSitePerProcess,BackForwardCache");
+app.commandLine.appendSwitch("num-raster-threads", "1");
+app.commandLine.appendSwitch("js-flags", "--max-old-space-size=64");
+if (isCompatRender) {
+  app.disableHardwareAcceleration();
+} else {
+  app.commandLine.appendSwitch("gpu-program-cache-size-kb", "1024");
+}
 
 if (!app.requestSingleInstanceLock()) app.quit();
 else if (process.argv.includes("--quit")) app.quit();
 else {
-  let quitting = false, recoveryTimer, visualTimer, visualChecking = false, blankFrames = 0, visualCheckInterval = 15000, lastVisualCheck = 0, uptimeCheckTimer;
+  let quitting = false, recoveryTimer, resumeCheckTimer;
   const recoveryLog = reason => {
     try { require("node:fs").appendFileSync(path.join(dataDir, "recovery.log"), new Date().toISOString() + " " + reason + "\n"); } catch {}
   };
-  let win, contextMenu = null, panel, drag = null, hoverInteractive = false, source = { online: false, source: "正在读取本机日志", files: 0 }, saveTimer, displayScale = null, hostArea = null, hostLayout = null, dragTimer = null, facing = "right", dockSide = "", artShift = 0;
+  let win, tray = null, contextMenu = null, ctxWin = null, ctxIdleTimer = null, panel, drag = null, hoverInteractive = false, source = { online: false, source: "正在读取本机日志", files: 0 }, saveTimer, displayScale = null, hostArea = null, hostLayout = null, dragTimer = null, facing = "right", dockSide = "", artShift = 0, lastSentVisible = null;
   const foreground = new ForegroundMonitor(), quotaAdapter = new HostQuotaAdapter({ cachePath: path.join(dataDir, "quota-cache.json") }), workingAdapter = new HostWorkingAdapter();
   const dialogue = require("../../assets/dialogue/zh-CN.json");
   const running = new Set();
   let hostWorkingConnected = false;
-  const settings = new SettingsManager(path.join(dataDir, "settings.json")), ledger = new UsageLedger({ storagePath: path.join(dataDir, "usage-v2.json") }), sm = new WidgetStateMachine("offline"), adapter = new TranscriptAdapter(), audio = new AudioManager();
+  const settings = earlySettings, ledger = new UsageLedger({ storagePath: path.join(dataDir, "usage-v2.json") }), sm = new WidgetStateMachine("offline"), adapter = new TranscriptAdapter(), audio = new AudioManager();
 
-  const snapshot = () => {
+  function themeBgColor(theme) {
+    return ({ crystal: "#f7f5fc", sakura: "#fdf5f8", ocean: "#f3f7fd", night: "#171429" })[theme] || "#f7f5fc";
+  }
+
+  function safeWindowPid(w) {
+    if (!w || w.isDestroyed()) return 0;
+    try { return w.webContents.getOSProcessId() || 0; } catch { return 0; }
+  }
+
+  function getProcessBreakdown() {
+    const winPid = safeWindowPid(win);
+    const panelPid = safeWindowPid(panel);
+    const ctxPid = safeWindowPid(ctxWin);
+    const list = [];
+    try {
+      for (const m of app.getAppMetrics()) {
+        let role = "辅助子进程";
+        if (m.type === "Browser") role = "主控与额度监听";
+        else if (m.type === "GPU") role = isCompatRender ? "CPU 软渲染合成" : "GPU 硬件合成";
+        else if (m.pid === winPid) role = "猫娘立绘与气泡";
+        else if (m.pid === panelPid) role = "定制设置面板（关窗即释）";
+        else if (m.pid === ctxPid) role = "右键快捷菜单（闲置即释）";
+        else if (m.type === "Tab") role = "界面渲染子进程";
+        else if (m.name || m.serviceName) role = m.name || m.serviceName;
+        const kb = m.memory?.workingSetSize || m.memory?.privateBytes || 0;
+        list.push({ pid: m.pid, role, mb: kb > 0 ? Math.max(1, Math.round(kb / 1024)) : null });
+      }
+    } catch {}
+    if (foreground.child?.pid) {
+      list.push({ pid: foreground.child.pid, role: "窗口贴边跟随 (原生助手)", mb: null });
+    }
+    return list;
+  }
+
+  const snapshot = (includeStatic = true) => {
     ledger.quotaRemainingPercent = settings.get("manualQuota") === true ? settings.get("manualPercent") : null;
     const facingMode = settings.get("facingMode");
     const effectiveFacing = facingMode === "left" || facingMode === "right" ? facingMode : facing;
-    return {
+    const out = {
       artShift,
       dockSide,
+      compatRender: isCompatRender,
       quotaWindows: quotaAdapter.snapshot,
       facing: effectiveFacing,
       state: sm.currentState,
       persistentState: sm.persistentState,
-      dialogue: dialogue.lines,
       settings: settings.getAll(),
       displayScale: displayScale || settings.get("scale"),
       visibility: {
@@ -49,16 +97,42 @@ else {
         withinHost: !!hostArea
       },
       ledger: ledger.getSnapshot(),
-      source,
-      presets: audio.getPresetList(),
-      eventSounds: audio.getEventSoundList()
+      source
     };
+    if (includeStatic) {
+      out.dialogue = dialogue.lines;
+      out.presets = audio.getPresetList();
+      out.eventSounds = audio.getEventSoundList();
+      out.processes = getProcessBreakdown();
+    }
+    return out;
   };
 
   const send = (channel, data) => {
-    for (const w of [win, panel]) if (w && !w.isDestroyed()) w.webContents.send(channel, data);
+    for (const w of [win, panel, ctxWin]) if (w && !w.isDestroyed()) w.webContents.send(channel, data);
   };
-  const publish = () => send("widget:snapshot", snapshot());
+  const publish = (includeStatic = false) => {
+    const hasPanel = Boolean(panel && !panel.isDestroyed());
+    const hasCtx = Boolean(ctxWin && !ctxWin.isDestroyed());
+    if (win && !win.isDestroyed()) {
+      win.webContents.send("widget:snapshot", snapshot(includeStatic));
+    }
+    if (hasPanel) {
+      panel.webContents.send("widget:snapshot", snapshot(true));
+    }
+    if (hasCtx) {
+      ctxWin.webContents.send("widget:snapshot", snapshot(false));
+    }
+  };
+
+  function notifyVisibility(visible) {
+    workingAdapter.setHostVisible(visible);
+    if (!win || win.isDestroyed()) return;
+    if (lastSentVisible === visible) return;
+    lastSentVisible = visible;
+    try { win.webContents.setFrameRate(visible ? 60 : 1); } catch {}
+    win.webContents.send("widget:visibility", visible);
+  }
 
   function syncQuotaState() {
     if (["idle", "warning"].includes(sm.persistentState)) {
@@ -83,6 +157,7 @@ else {
     if (!settings.get("hostWindowOnly")) {
       hostArea = null; hostLayout = null; displayScale = settings.get("scale");
       if (!win.isVisible()) win.showInactive();
+      notifyVisibility(true);
       return;
     }
     if (drag) return;
@@ -94,6 +169,7 @@ else {
       hostArea = null; hostLayout = null;
       if (drag) { drag = null; sm.handlePointerUp(); }
       if (win.isVisible()) win.hide();
+      notifyVisibility(false);
       return;
     }
 
@@ -113,15 +189,16 @@ else {
       win.showInactive();
       if (layoutChanged) setTimeout(() => {
         if (win && !win.isDestroyed()) {
-          win.webContents.send("widget:preload-frames");
           win.webContents.invalidate();
         }
       }, 50);
     }
+    notifyVisibility(true);
     return !nativeTranslation;
   }
 
   function show() {
+    if (quitting) return;
     if (!win || win.isDestroyed()) createWindow();
     if (settings.get("hostWindowOnly")) foreground.start(win.getNativeWindowHandle());
     if (!settings.get("hostWindowOnly") && !win.isVisible()) win.showInactive();
@@ -129,9 +206,88 @@ else {
     win.setIgnoreMouseEvents(settings.get("clickThrough"), { forward: true });
   }
 
+  function findHelperExe() {
+    const fs = require("node:fs");
+    const appPath = app.getAppPath();
+    let realAppPath = appPath;
+    try { realAppPath = fs.realpathSync(appPath); } catch {}
+    const candidates = [
+      path.resolve(realAppPath, "../LaunchAntigravityWithWidget.exe"),
+      path.resolve(__dirname, "../../../../LaunchAntigravityWithWidget.exe"),
+      path.resolve(appPath, "../LaunchAntigravityWithWidget.exe"),
+      path.join(path.dirname(process.execPath), "LaunchAntigravityWithWidget.exe")
+    ];
+    return candidates.find(p => {
+      try { return fs.existsSync(p); } catch { return false; }
+    }) || null;
+  }
+
+  function relaunchSelf() {
+    if (quitting) return;
+    quitting = true;
+    const { spawn } = require("node:child_process");
+    const appPath = app.getAppPath();
+    let realAppPath = appPath;
+    try { realAppPath = require("node:fs").realpathSync(appPath); } catch {}
+    const cleanArgs = process.argv
+      .slice(1)
+      .filter(a => a !== "--software-render" && a !== "--disable-gpu" && a !== "--force-gpu" && a !== "--open-settings" && a !== "--restart-widget");
+
+    const helperExe = findHelperExe();
+    let spawned = false;
+    if (helperExe) {
+      try {
+        const hArgs = [
+          "--attach",
+          "--wait-pid=" + process.pid,
+          "--widget-exe=" + process.execPath,
+          "--widget-app=" + realAppPath
+        ];
+        const customDataArg = process.argv.find(a => a.startsWith("--data-dir="));
+        if (customDataArg) hArgs.push(customDataArg);
+        if (process.argv.includes("--no-shortcuts")) hArgs.push("--no-shortcuts");
+        const child = spawn(helperExe, hArgs, {
+          detached: true,
+          windowsHide: true,
+          stdio: "ignore",
+          cwd: path.dirname(helperExe)
+        });
+        child.unref();
+        spawned = true;
+      } catch {}
+    }
+
+    if (!spawned) {
+      try {
+        const psQuote = s => "'" + String(s).replace(/'/g, "''") + "'";
+        const argArrayExpr = cleanArgs.length ? ("@(" + cleanArgs.map(psQuote).join(",") + ")") : "@()";
+        const psScript = [
+          `try { Wait-Process -Id ${process.pid} -Timeout 5 -ErrorAction SilentlyContinue } catch {}`,
+          "Start-Sleep -Milliseconds 120",
+          cleanArgs.length
+            ? `Start-Process -FilePath ${psQuote(process.execPath)} -ArgumentList ${argArrayExpr} -WorkingDirectory ${psQuote(process.cwd())}`
+            : `Start-Process -FilePath ${psQuote(process.execPath)} -WorkingDirectory ${psQuote(process.cwd())}`
+        ].join("; ");
+        const encoded = Buffer.from(psScript, "utf16le").toString("base64");
+        const sysRoot = process.env.SystemRoot || "C:\\Windows";
+        const psExe = path.join(sysRoot, "System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+        const w = spawn(psExe, ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], {
+          detached: true,
+          windowsHide: true,
+          stdio: "ignore"
+        });
+        w.unref();
+      } catch {
+        app.relaunch({ args: cleanArgs });
+      }
+    }
+
+    app.quit();
+  }
+
   function apply(partial) {
     const allowed = [
-      "scale", "alwaysOnTop", "reducedMotion", "sound", "volume", "soundSet",
+      "scale", "alwaysOnTop", "reducedMotion", "compatMode", "sound", "volume", "soundSet",
       "bubbleOn", "turnCostOn", "turnCostDurationMs", "clickThrough", "snap",
       "bubblePage", "manualQuota", "manualPercent", "manualWeeklyPercent",
       "hostWindowOnly", "easterEggs",
@@ -142,12 +298,16 @@ else {
       "waitingAlertOn", "waitingSound", "waitingSoundId", "waitingVolume",
       "clickAction", "doubleClickAction", "wheelAction"
     ];
-    const oldScale = settings.get("scale"), oldHostOnly = settings.get("hostWindowOnly");
+    const oldScale = settings.get("scale"), oldHostOnly = settings.get("hostWindowOnly"), oldCompat = settings.get("compatMode");
     if (!oldHostOnly && partial?.hostWindowOnly === true && win) {
       const pos = win.getBounds();
       settings.update({ x: pos.x, y: pos.y });
     }
     settings.update(Object.fromEntries(Object.entries(partial || {}).filter(([k]) => allowed.includes(k))));
+    if (settings.get("compatMode") !== oldCompat) {
+      setTimeout(() => relaunchSelf(), 60);
+      return snapshot();
+    }
     syncQuotaState();
     if (settings.get("hostWindowOnly")) foreground.start(win?.getNativeWindowHandle());
     else foreground.stop();
@@ -164,10 +324,15 @@ else {
     audio.setEnabled(settings.get("sound"));
     audio.setVolume(settings.get("volume"));
     audio.setPreset(settings.get("soundSet"));
+    if (panel && !panel.isDestroyed()) {
+      try { panel.setBackgroundColor(themeBgColor(settings.get("bubbleTheme"))); } catch {}
+    }
     publish();
     updateMenu();
     return snapshot();
   }
+
+  const appIconPath = path.join(__dirname, "../../assets/app-icon.ico");
 
   function openSettings() {
     if (panel && !panel.isDestroyed()) { panel.show(); panel.focus(); return; }
@@ -177,8 +342,9 @@ else {
       minWidth: 500,
       minHeight: 620,
       autoHideMenuBar: true,
-      title: "喵言喵语 · 定制与设置",
-      backgroundColor: "#f6f4fb",
+      icon: appIconPath,
+      title: "星语猫娘 · 定制与设置",
+      backgroundColor: themeBgColor(settings.get("bubbleTheme")),
       webPreferences: {
         preload: path.join(__dirname, "preload.cjs"),
         contextIsolation: true,
@@ -188,6 +354,71 @@ else {
     });
     panel.loadFile(path.join(__dirname, "../renderer/settings.html"));
     panel.on("closed", () => panel = null);
+  }
+
+  function closeContextMenu() {
+    if (!ctxWin || ctxWin.isDestroyed()) return;
+    if (ctxWin.isVisible()) ctxWin.hide();
+    clearTimeout(ctxIdleTimer);
+    ctxIdleTimer = setTimeout(() => {
+      if (ctxWin && !ctxWin.isDestroyed() && !ctxWin.isVisible()) {
+        ctxWin.destroy();
+        ctxWin = null;
+        if (panel && !panel.isDestroyed()) publish();
+      }
+    }, 12000);
+    if (typeof ctxIdleTimer.unref === "function") ctxIdleTimer.unref();
+  }
+
+  function openContextMenu() {
+    clearTimeout(ctxIdleTimer);
+    const CTX_W = 264, CTX_H = 472;
+    const pt = screen.getCursorScreenPoint();
+    const area = screen.getDisplayNearestPoint(pt).workArea;
+    const rawX = (pt.x + CTX_W > area.x + area.width) ? (pt.x - CTX_W + 20) : (pt.x - 12);
+    const rawY = (pt.y + CTX_H > area.y + area.height) ? (pt.y - CTX_H + 20) : (pt.y - 12);
+    const x = Math.round(Math.max(area.x + 4, Math.min(area.x + area.width - CTX_W - 4, rawX)));
+    const y = Math.round(Math.max(area.y + 4, Math.min(area.y + area.height - CTX_H - 4, rawY)));
+
+    if (ctxWin && !ctxWin.isDestroyed()) {
+      ctxWin.setBounds({ x, y, width: CTX_W, height: CTX_H });
+      ctxWin.webContents.send("widget:snapshot", snapshot(false));
+      ctxWin.show();
+      ctxWin.focus();
+      return;
+    }
+
+    ctxWin = new BrowserWindow({
+      x, y, width: CTX_W, height: CTX_H,
+      frame: false,
+      transparent: true,
+      hasShadow: false,
+      resizable: false,
+      movable: false,
+      minimizable: false,
+      maximizable: false,
+      skipTaskbar: true,
+      alwaysOnTop: true,
+      show: false,
+      icon: appIconPath,
+      title: "星语猫娘菜单",
+      webPreferences: {
+        preload: path.join(__dirname, "preload.cjs"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true
+      }
+    });
+    ctxWin.loadFile(path.join(__dirname, "../renderer/menu.html"));
+    ctxWin.once("ready-to-show", () => {
+      if (ctxWin && !ctxWin.isDestroyed()) {
+        ctxWin.show();
+        ctxWin.focus();
+        if (panel && !panel.isDestroyed()) publish();
+      }
+    });
+    ctxWin.on("blur", () => closeContextMenu());
+    ctxWin.on("closed", () => { clearTimeout(ctxIdleTimer); ctxWin = null; });
   }
 
   function reset() {
@@ -201,15 +432,74 @@ else {
 
   function recall() {
     show();
-    if (settings.get("hostWindowOnly") && !win.isVisible()) openSettings();
+    if (settings.get("clickThrough") || (settings.get("hostWindowOnly") && !win.isVisible())) openSettings();
+  }
+
+  async function enableLiveQuota() {
+    closeContextMenu();
+    try {
+      const liveClient = await sharedHost.getClient();
+      if (liveClient) {
+        if (!settings.get("bubbleOn")) apply({ bubbleOn: true });
+        quotaAdapter.openNativeQuota().catch(() => {});
+        if (win && !win.isDestroyed()) win.webContents.send("widget:open-quota");
+        return;
+      }
+    } catch {}
+
+    const owner = (panel && !panel.isDestroyed() && panel.isVisible()) ? panel : undefined;
+    const allowBind = !process.argv.includes("--no-shortcuts");
+    const buttons = allowBind
+      ? ["重开并设为默认伴随启动（推荐）", "仅本次重开", "取消"]
+      : ["立即重开", "取消"];
+    const cancelId = buttons.length - 1;
+    const choice = await dialog.showMessageBox(owner, {
+      type: "question",
+      title: "开启实时额度",
+      message: "需要重新打开 Antigravity 以开启实时额度读取",
+      detail: allowBind
+        ? "请先确认当前对话已回复完毕。\n\n· 重开并设为默认伴随启动（推荐）：自动更新桌面/开始菜单快捷方式（保留 Antigravity 原图标），以后每次打开都会自动开启实时额度并拉起猫娘。\n· 仅本次重开：只为当前这一次开启端口。"
+        : "请先确认当前对话已回复完毕。点击「立即重开」后将自动带额度端口重启并恢复桌宠连接。",
+      buttons,
+      defaultId: 0,
+      cancelId,
+      noLink: true
+    });
+    if (choice.response === cancelId) return;
+    const bindShortcuts = allowBind && choice.response === 0;
+
+    const { spawn } = require("node:child_process");
+    let realAppPath = app.getAppPath();
+    try { realAppPath = require("node:fs").realpathSync(realAppPath); } catch {}
+    const helperExe = findHelperExe();
+
+    if (helperExe) {
+      const helperArgs = [
+        "--relaunch-host",
+        "--widget-exe=" + process.execPath,
+        "--widget-app=" + realAppPath
+      ];
+      if (bindShortcuts) helperArgs.push("--bind-shortcuts");
+      const customDataArg = process.argv.find(a => a.startsWith("--data-dir="));
+      if (customDataArg) helperArgs.push(customDataArg);
+      if (process.argv.includes("--no-shortcuts")) helperArgs.push("--no-shortcuts");
+      const child = spawn(helperExe, helperArgs, {
+        detached: true,
+        windowsHide: true,
+        stdio: "ignore",
+        cwd: path.dirname(helperExe)
+      });
+      child.unref();
+    }
   }
 
   function updateMenu() {
     const curTheme = settings.get("bubbleTheme");
     const curFacing = settings.get("facingMode");
     contextMenu = Menu.buildFromTemplate([
-      { label: "喵言喵语 · Gemini 桌宠", enabled: false },
+      { label: "星语猫娘 · 桌宠", enabled: false },
       { label: "定制与设置面板…", click: openSettings },
+      { label: "开启实时额度", click: () => { enableLiveQuota().catch(() => {}); } },
       { label: "摸摸头", click: () => sm.handlePetting() },
       { type: "separator" },
       { label: "显示气泡", type: "checkbox", checked: settings.get("bubbleOn"), click: () => apply({ bubbleOn: !settings.get("bubbleOn") }) },
@@ -218,7 +508,7 @@ else {
         submenu: [
           { label: "星晶蓝紫（默认）", type: "radio", checked: curTheme === "crystal", click: () => apply({ bubbleTheme: "crystal" }) },
           { label: "樱粉浅暖", type: "radio", checked: curTheme === "sakura", click: () => apply({ bubbleTheme: "sakura" }) },
-          { label: "深海鲸蓝", type: "radio", checked: curTheme === "ocean", click: () => apply({ bubbleTheme: "ocean" }) },
+          { label: "经典蓝白", type: "radio", checked: curTheme === "ocean", click: () => apply({ bubbleTheme: "ocean" }) },
           { label: "星空暗夜", type: "radio", checked: curTheme === "night", click: () => apply({ bubbleTheme: "night" }) }
         ]
       },
@@ -231,37 +521,50 @@ else {
         ]
       },
       { label: "隐藏右侧悬浮按钮", type: "checkbox", checked: settings.get("hideHoverTools"), click: () => apply({ hideHoverTools: !settings.get("hideHoverTools") }) },
+      { label: "兼容模式（防小飞机叠加）", type: "checkbox", checked: isCompatRender, click: () => apply({ compatMode: !isCompatRender }) },
       { label: "鼠标穿透 · Ctrl+Alt+Shift+G 恢复", type: "checkbox", checked: settings.get("clickThrough"), click: () => apply({ clickThrough: !settings.get("clickThrough") }) },
       { type: "separator" },
       { label: "停靠左下角", click: () => dock("left") },
       { label: "停靠右下角", click: () => dock("right") },
       { label: "重置位置", click: reset },
-      { label: "重启挂件", click: () => { app.relaunch(); app.quit(); } },
+      { label: "重启挂件", click: () => relaunchSelf() },
       { type: "separator" },
-      { label: "退出喵言喵语", click: () => app.quit() }
+      { label: "退出星语猫娘", click: () => app.quit() }
     ]);
+    if (tray && !tray.isDestroyed()) {
+      try {
+        tray.setToolTip(settings.get("clickThrough") ? "星语猫娘 · 鼠标穿透中（左键设置 / 右键菜单）" : "星语猫娘 · 左键设置 / 右键菜单");
+      } catch {}
+    }
   }
 
   function createWindow() {
+    lastSentVisible = null;
     const dim = bounds(), pos = safePosition(settings.get("x"), settings.get("y"), dim.width, dim.height);
     win = new BrowserWindow({
       ...dim, ...pos, frame: false, transparent: true, hasShadow: false, resizable: false, skipTaskbar: true,
+      icon: appIconPath, title: "Star Neko Widget",
       alwaysOnTop: !settings.get("hostWindowOnly") && settings.get("alwaysOnTop"), show: false,
       webPreferences: {
         preload: path.join(__dirname, "preload.cjs"),
         contextIsolation: true,
         nodeIntegration: false,
         sandbox: true,
-        backgroundThrottling: false
+        backgroundThrottling: true
       }
     });
+    try { win.webContents.setFrameRate(60); } catch {}
     win.loadFile(path.join(__dirname, "../renderer/index.html"));
     win.once("ready-to-show", show);
-    win.on("closed", () => { foreground.stop(); win = null; if (!quitting) setTimeout(show, 250); });
+    win.on("closed", () => { foreground.stop(); win = null; lastSentVisible = null; if (!quitting) setTimeout(show, 250); });
     win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
     win.webContents.on("will-navigate", e => e.preventDefault());
     win.webContents.on("render-process-gone", () => { if (!quitting && win && !win.isDestroyed()) win.destroy(); });
-    win.webContents.on("did-finish-load", () => { blankFrames = 0; publish(); });
+    win.webContents.on("did-finish-load", () => {
+      lastSentVisible = null;
+      notifyVisibility(win.isVisible());
+      publish(true);
+    });
     if (process.platform === "win32") {
       const dispatchXButton = (wParam, pressed) => {
         if (!win || win.isDestroyed() || !Buffer.isBuffer(wParam) || wParam.length < 4) return;
@@ -295,7 +598,7 @@ else {
   }
 
   function trusted(e) {
-    return [win, panel].some(w => w && !w.isDestroyed() && e.sender === w.webContents);
+    return [win, panel, ctxWin].some(w => w && !w.isDestroyed() && e.sender === w.webContents);
   }
 
   ipcMain.handle("widget:get", e => trusted(e) ? snapshot() : null);
@@ -319,7 +622,10 @@ else {
   ipcMain.on("widget:command", (e, command) => {
     if (!trusted(e)) return;
     if (command === "settings") openSettings();
-    else if (command === "menu") contextMenu?.popup({ window: win });
+    else if (command === "menu") openContextMenu();
+    else if (command === "close-menu") closeContextMenu();
+    else if (command === "enable-live-quota") enableLiveQuota().catch(() => {});
+    else if (command === "relaunch-widget") relaunchSelf();
     else if (command === "quit") app.quit();
     else if (command === "reset") reset();
     else if (command === "dock-left") dock("left");
@@ -339,10 +645,20 @@ else {
     if (!drag.moved) { drag.moved = true; sm.handleDragStart(); }
     const a = hostArea || screen.getDisplayNearestPoint(p).workArea, size = displayScale || settings.get("scale");
     const placement = characterPlacement(a, size, drag.bounds, drag.visualX + dx, drag.bounds.y + dy);
+    const prevShift = artShift, prevDock = dockSide, prevFacing = facing;
     win.setBounds(placement.bounds); artShift = placement.artShift; dockSide = "";
     facing = placement.visualX + size / 2 < a.x + a.width / 2 ? "left" : "right";
-    publish();
+    if (artShift !== prevShift || dockSide !== prevDock || facing !== prevFacing) {
+      publish();
+    }
   }
+
+  ipcMain.on("widget:drag-move", (e, raw) => {
+    if (!trusted(e) || !drag || !win) return;
+    if (raw && Number.isFinite(raw.x) && Number.isFinite(raw.y) && Math.abs(raw.x) < 100000 && Math.abs(raw.y) < 100000) {
+      dragMove({ x: raw.x, y: raw.y });
+    }
+  });
 
   function dock(side) {
     if (!win) return;
@@ -497,7 +813,13 @@ else {
     syncQuotaState(); publish();
   });
 
-  app.on("second-instance", (_event, args) => { if (args.includes("--quit")) app.quit(); else if (!args.includes("--background")) recall(); });
+  app.on("second-instance", (_event, args) => {
+    if (args.includes("--quit")) app.quit();
+    else if (quitting) return;
+    else if (args.includes("--restart-widget")) relaunchSelf();
+    else if (args.includes("--open-settings")) openSettings();
+    else if (!args.includes("--background")) recall();
+  });
   app.whenReady().then(async () => {
     if (!hasNativeHelper()) {
       quitting = true;
@@ -514,8 +836,19 @@ else {
       return;
     }
     createWindow(); updateMenu();
-    globalShortcut.register("CommandOrControl+Alt+G", recall);
-    globalShortcut.register("CommandOrControl+Alt+Shift+G", () => { apply({ clickThrough: false }); recall(); });
+    if (!process.argv.includes("--no-shortcuts")) {
+      try {
+        tray = new Tray(appIconPath);
+        tray.setToolTip(settings.get("clickThrough") ? "星语猫娘 · 鼠标穿透中（左键设置 / 右键菜单）" : "星语猫娘 · 左键设置 / 右键菜单");
+        tray.on("click", () => openSettings());
+        tray.on("right-click", () => openContextMenu());
+      } catch {}
+      try {
+        globalShortcut.register("CommandOrControl+Alt+G", recall);
+        globalShortcut.register("CommandOrControl+Alt+Shift+G", () => { apply({ clickThrough: false }); recall(); });
+      } catch {}
+    }
+    if (process.argv.includes("--open-settings")) openSettings();
     if (settings.get("hostWindowOnly")) foreground.start(win?.getNativeWindowHandle());
     audio.setEnabled(settings.get("sound"));
     audio.setVolume(settings.get("volume"));
@@ -524,56 +857,72 @@ else {
     recoveryTimer = setInterval(() => {
       if (!win || win.isDestroyed()) { show(); return; }
       if (settings.get("hostWindowOnly")) foreground.start(win.getNativeWindowHandle());
-    }, 2000);
-    uptimeCheckTimer = setInterval(() => {
-      const uptime = process.uptime();
-      if (uptime > 7200) visualCheckInterval = 120000;
-      else if (uptime > 3600) visualCheckInterval = 60000;
-    }, 300000);
-    visualTimer = setInterval(async () => {
-      if (visualChecking || drag || !win || win.isDestroyed() || !win.isVisible() || (settings.get("hostWindowOnly") && !hostArea)) return;
-      if (Date.now() - lastVisualCheck < visualCheckInterval) return;
-      lastVisualCheck = Date.now();
-      visualChecking = true; const checked = win;
+    }, 3000);
+    const verifySurfaceOnce = async () => {
+      if (drag || !win || win.isDestroyed() || !win.isVisible() || (settings.get("hostWindowOnly") && !hostArea)) return;
+      const checked = win;
       try {
-        const healthy = await Promise.race([
-          checked.webContents.executeJavaScript(`(()=>{const face=document.querySelector('.agy-face');if(!face)return false;const r=face.getBoundingClientRect();if(r.width<20||r.height<20)return false;let node=face;while(node){const s=getComputedStyle(node);if(s.display==='none'||s.visibility==='hidden'||Number(s.opacity)===0)return false;node=node.parentElement;}return [...face.querySelectorAll('img')].some(img=>img.complete&&img.naturalWidth>0&&Number(getComputedStyle(img).opacity)>0);})()`),
-          new Promise((_, reject) => { const timer = setTimeout(() => reject(Error("renderer-check-timeout")), 4000); timer.unref(); })
-        ]);
-        if (!healthy) { recoveryLog("invalid-character-layout-recreate"); checked.destroy(); return; }
         const frame = await Promise.race([
           checked.webContents.capturePage(),
-          new Promise((_, reject) => { const timer = setTimeout(() => reject(Error("capture-timeout")), 4000); timer.unref(); })
+          new Promise((_, reject) => { const timer = setTimeout(() => reject(Error("capture-timeout-stop-presenting")), 2500); timer.unref(); })
         ]);
-        const pixels = frame.toBitmap(); let opaque = 0;
-        for (let i = 3; i < pixels.length; i += 4) if (pixels[i] > 32) opaque++;
-        blankFrames = opaque < 500 ? blankFrames + 1 : 0;
-        if (blankFrames >= 2 && win === checked && !checked.isDestroyed()) {
-          recoveryLog("blank-surface-recreate opaque=" + opaque); checked.destroy();
+        const sz = frame.getSize();
+        const pixels = frame.toBitmap();
+        let opaque = 0;
+        for (let i = 3; i < pixels.length; i += 16) if (pixels[i] > 32) opaque++;
+        if (opaque < 80 && win === checked && !checked.isDestroyed()) {
+          recoveryLog("blank-surface-recreate opaque=" + opaque);
+          checked.destroy();
+          return;
+        }
+        // Detect alpha-channel loss ("black box" around catgirl: top-left & top-right corners turning solid black)
+        if (sz.width > 40 && sz.height > 40) {
+          const idxTL = (2 * sz.width + 2) * 4;
+          const idxTR = (2 * sz.width + (sz.width - 3)) * 4;
+          const blackTL = pixels[idxTL + 3] > 240 && (pixels[idxTL] + pixels[idxTL + 1] + pixels[idxTL + 2]) < 30;
+          const blackTR = pixels[idxTR + 3] > 240 && (pixels[idxTR] + pixels[idxTR + 1] + pixels[idxTR + 2]) < 30;
+          if (blackTL && blackTR && win === checked && !checked.isDestroyed()) {
+            recoveryLog("black-box-alpha-loss-recreate");
+            checked.destroy();
+          }
         }
       } catch (error) {
         if (win === checked && !checked.isDestroyed()) {
-          recoveryLog("surface-check-recreate " + error.message); checked.destroy();
+          recoveryLog("surface-freeze-recreate " + error.message);
+          checked.destroy();
         }
-      } finally {
-        visualChecking = false;
-      }
-    }, 15000);
-    const resume = () => {
-      drag = null; hostLayout = null; foreground.stop(); show(); publish();
-      if (win && !win.isDestroyed()) {
-        win.webContents.send("widget:force-repaint");
-        win.webContents.invalidate();
       }
     };
+    const scheduleSurfaceVerify = (delayMs = 1200) => {
+      clearTimeout(resumeCheckTimer);
+      resumeCheckTimer = setTimeout(verifySurfaceOnce, delayMs);
+      if (typeof resumeCheckTimer.unref === "function") resumeCheckTimer.unref();
+    };
+    scheduleSurfaceVerify(2500);
+    const resume = () => {
+      drag = null; hostLayout = null; foreground.stop(); show(); publish(true);
+      if (win && !win.isDestroyed()) {
+        win.webContents.invalidate();
+      }
+      scheduleSurfaceVerify(1200);
+    };
+    app.on("child-process-gone", (_e, details) => {
+      if (details?.type === "GPU" && !quitting) scheduleSurfaceVerify(600);
+    });
     powerMonitor.on("resume", resume); powerMonitor.on("unlock-screen", resume);
-    screen.on("display-removed", reset);
-    screen.on("display-metrics-changed", () => { if (settings.get("hostWindowOnly")) { syncVisibility(); publish(); } });
+    screen.on("display-added", () => scheduleSurfaceVerify(1200));
+    screen.on("display-removed", () => { reset(); scheduleSurfaceVerify(1200); });
+    screen.on("display-metrics-changed", () => {
+      if (settings.get("hostWindowOnly")) { syncVisibility(); publish(); }
+      scheduleSurfaceVerify(1200);
+    });
   });
   app.on("before-quit", () => {
     quitting = true;
-    clearInterval(visualTimer); clearInterval(uptimeCheckTimer); clearInterval(recoveryTimer); clearInterval(dragTimer);
-    foreground.stop(); adapter.stop(); quotaAdapter.stop(); workingAdapter.stop(); sm.destroy();
+    if (tray && !tray.isDestroyed()) { try { tray.destroy(); } catch {} tray = null; }
+    clearTimeout(ctxIdleTimer); if (ctxWin && !ctxWin.isDestroyed()) ctxWin.destroy();
+    clearTimeout(resumeCheckTimer); clearInterval(recoveryTimer); clearInterval(dragTimer);
+    foreground.stop(); adapter.stop(); quotaAdapter.stop(); workingAdapter.stop(); sharedHost.drop(); sm.destroy();
     clearTimeout(saveTimer); ledger.save(); globalShortcut.unregisterAll();
   });
   app.on("window-all-closed", () => { if (quitting) app.quit(); });

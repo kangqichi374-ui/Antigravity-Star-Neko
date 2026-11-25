@@ -23,7 +23,7 @@
   refreshSoundLists();
 
   const keys = [
-    "hostWindowOnly", "easterEggs", "scale", "alwaysOnTop", "snap", "reducedMotion", "clickThrough",
+    "hostWindowOnly", "easterEggs", "scale", "alwaysOnTop", "snap", "reducedMotion", "compatMode", "clickThrough",
     "bubbleTheme", "facingMode", "autoBlink", "hideHoverTools",
     "bubbleOn", "bubbleAutoHideMs",
     "turnCostOn", "turnCostDurationMs", "customLinesMode", "customLines",
@@ -56,6 +56,7 @@
   }
 
   function render() {
+    document.documentElement.dataset.theme = data.settings?.bubbleTheme || "crystal";
     const q = data.quotaWindows || {};
     const labels = {
       ready: "后台额度已读取",
@@ -66,6 +67,19 @@
       "query-failed": "额度查询失败，将自动重试"
     };
     $("quota-status").textContent = (labels[q.status] || "等待后台额度") + (q.stale ? " · 旧值待更新" : "");
+    const cdpBadge = $("cdp-status-badge");
+    if (cdpBadge) {
+      if (q.cdpConnected) {
+        cdpBadge.textContent = "已开启实时同步";
+        cdpBadge.dataset.state = "live";
+      } else if (q.cdpMissing) {
+        cdpBadge.textContent = "未开启额度端口";
+        cdpBadge.dataset.state = "missing";
+      } else {
+        cdpBadge.textContent = labels[q.status] || "等待连接";
+        cdpBadge.dataset.state = "";
+      }
+    }
 
     for (const key of keys) {
       const el = $(key);
@@ -85,6 +99,16 @@
     $("waitingVolume-value").textContent = Math.round((data.settings.waitingVolume ?? 0.6) * 100) + "%";
     $("source").textContent = (data.source.online ? "已找到 " + data.source.files + " 份日志" : "未检测到会话日志") + " · 本机只读";
     $("audio-note").textContent = data.settings.sound ? "点击音效已启用" : "点击音效已静音";
+    const procBox = $("proc-list");
+    if (procBox && Array.isArray(data.processes)) {
+      procBox.innerHTML = "";
+      for (const item of data.processes) {
+        const span = document.createElement("span");
+        span.className = "proc-tag";
+        span.textContent = item.mb != null ? `${item.role} (PID ${item.pid}) · ${item.mb} MB` : `${item.role} (PID ${item.pid})`;
+        procBox.append(span);
+      }
+    }
   }
 
   function stop() {
@@ -115,6 +139,7 @@
   $("dock-left").onclick = () => api.command("dock-left");
   $("dock-right").onclick = () => api.command("dock-right");
   $("reset").onclick = () => api.command("reset");
+  if ($("enable-live-quota")) $("enable-live-quota").onclick = () => api.command("enable-live-quota");
   $("quota-refresh").onclick = () => api.command("quota-refresh");
   $("refresh").onclick = () => api.command("refresh");
 

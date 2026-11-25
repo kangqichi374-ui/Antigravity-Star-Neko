@@ -12,39 +12,37 @@
   const hasSideButtonHeld = () => Boolean(sideHeld[3] || sideHeld[4]);
   const isPartHeld = part =>
     partPointer?.part === part || sideHeld[3]?.part === part || sideHeld[4]?.part === part;
-  let gemIdleTimer = null, gemThinkingTimer = null, gemRaf = 0, gemToken = 0, curGemStep = 0;
-  let curBunL = 0, curBunR = 0, curStrand = 0, strandIdleTimer = null, strandRaf = 0, strandToken = 0;
+  let gemIdleTimer = null, gemThinkingTimer = null, gemRaf = 0, gemToken = 0, curGemStep = 6;
+  let curBunL = 0, curBunR = 0, curStrand = 0, strandIdleTimer = null, strandStepTimer = null, strandToken = 0;
   let blushRaf = 0, blushToken = 0, curBlushOpacity = 0;
+  let windowVisible = true;
+  const isEffectivelyHidden = () => !windowVisible || document.hidden;
+  const isCompat = () => Boolean(snapshot?.compatRender);
+  const getFrameInterval = () => (isCompat() ? 31 : 15.5);
 
   const LAYER_DIR = "../../assets/character-packs/gemini-star-v1/layers/";
   const earLeftEl = $("ear-left"), earRightEl = $("ear-right"), ahogeEl = $("ahoge"), gemEl = $("gem-fx");
   const bunLeftEl = $("bun-left"), bunRightEl = $("bun-right"), strandEl = $("hair-strand"), blushEl = $("blush-fx");
-  const earCacheL = [], earCacheR = [], gemCache = [], bunCacheL = [], bunCacheR = [], strandCache = [];
+  const earCacheL = [], earCacheR = [], gemCache = {}, bunCacheL = [], bunCacheR = [], strandCache = [];
+  const preloadImg = src => {
+    const img = new Image();
+    img.decoding = "async";
+    img.src = src;
+    return img;
+  };
   for (let i = 0; i <= 8; i++) {
-    const imgL = new Image();
-    imgL.src = `${LAYER_DIR}earL_${i}.png`;
-    earCacheL.push(imgL);
-    const imgR = new Image();
-    imgR.src = `${LAYER_DIR}earR_${i}.png`;
-    earCacheR.push(imgR);
+    earCacheL.push(preloadImg(`${LAYER_DIR}earL_${i}.png`));
+    earCacheR.push(preloadImg(`${LAYER_DIR}earR_${i}.png`));
   }
-  for (let i = 1; i <= 12; i++) {
-    const imgG = new Image();
-    imgG.src = `${LAYER_DIR}gem_${i}.png`;
-    gemCache.push(imgG);
+  for (const i of [4, 5, 6]) {
+    gemCache[i] = preloadImg(`${LAYER_DIR}gem_${i}.png`);
   }
   for (let i = 0; i <= 4; i++) {
-    const bL = new Image();
-    bL.src = `${LAYER_DIR}bunL_${i}.png`;
-    bunCacheL.push(bL);
-    const bR = new Image();
-    bR.src = `${LAYER_DIR}bunR_${i}.png`;
-    bunCacheR.push(bR);
+    bunCacheL.push(preloadImg(`${LAYER_DIR}bunL_${i}.png`));
+    bunCacheR.push(preloadImg(`${LAYER_DIR}bunR_${i}.png`));
   }
   for (let i = 0; i <= 6; i++) {
-    const st = new Image();
-    st.src = `${LAYER_DIR}strand_${i}.png`;
-    strandCache.push(st);
+    strandCache.push(preloadImg(`${LAYER_DIR}strand_${i}.png`));
   }
 
   function setBunLStep(stepL) {
@@ -77,30 +75,36 @@
   }
 
   function runStrandSequence(seq, durationMs) {
-    cancelAnimationFrame(strandRaf);
+    clearTimeout(strandStepTimer);
+    strandStepTimer = null;
     const token = ++strandToken;
-    const t0 = performance.now();
-    function step(now) {
+    if (!seq.length || isEffectivelyHidden()) {
+      setStrandStep(0);
+      return;
+    }
+    const stepMs = Math.max(16, Math.round(durationMs / seq.length));
+    let idx = 0;
+    function tick() {
       if (token !== strandToken) return;
-      const p = Math.min(1, (now - t0) / durationMs);
-      const idx = Math.min(seq.length - 1, Math.floor(p * seq.length));
-      setStrandStep(seq[idx]);
-      if (p < 1) {
-        strandRaf = requestAnimationFrame(step);
+      if (idx < seq.length) {
+        setStrandStep(seq[idx++]);
+        strandStepTimer = setTimeout(tick, stepMs);
       } else {
+        strandStepTimer = null;
         setStrandStep(0);
       }
     }
-    strandRaf = requestAnimationFrame(step);
+    tick();
   }
 
   // 常态发梢微风：右下独立翘发丝与外侧发尖每隔 5~9 秒做一次约 2.8 秒的慢速轻柔呼吸摆动
   function scheduleStrandAction(initial = false) {
     clearTimeout(strandIdleTimer);
+    if (isEffectivelyHidden()) return;
     const delay = initial ? 2200 : (5000 + Math.floor(Math.random() * 4000));
     strandIdleTimer = setTimeout(() => {
       const s = snapshot?.settings;
-      if (!s?.reducedMotion && !pointer && !document.hidden) {
+      if (!s?.reducedMotion && !pointer && !isEffectivelyHidden()) {
         runStrandSequence([1, 2, 3, 0, 4, 5, 6, 0], 2800);
       }
       scheduleStrandAction(false);
@@ -109,7 +113,7 @@
 
   // 脸颊微醺升温：不特别红（峰值 0.85），注意慢慢变红（1.8秒渐显 -> 维持2.0秒 -> 2.4秒缓缓消退）
   function triggerBlushWarmth() {
-    if (!blushEl || snapshot?.settings?.reducedMotion || document.hidden) return;
+    if (!blushEl || snapshot?.settings?.reducedMotion || isEffectivelyHidden()) return;
     cancelAnimationFrame(blushRaf);
     const token = ++blushToken;
     const startOp = curBlushOpacity;
@@ -117,7 +121,7 @@
     const riseMs = 1800, holdMs = 2000, fadeMs = 2400;
     const totalMs = riseMs + holdMs + fadeMs;
     const t0 = performance.now();
-    let lastBlushDomOp = -1;
+    let lastBlushDomOp = -1, lastTick = 0;
     function step(now) {
       if (token !== blushToken) return;
       const elapsed = now - t0;
@@ -126,6 +130,11 @@
         blushEl.style.opacity = "0";
         return;
       }
+      if (lastTick && now - lastTick < getFrameInterval()) {
+        blushRaf = requestAnimationFrame(step);
+        return;
+      }
+      lastTick = now;
       let op = 0;
       if (elapsed < riseMs) {
         const p = elapsed / riseMs;
@@ -149,31 +158,146 @@
   }
 
   const faceEl = document.querySelector(".agy-face");
+  const thinkingFxEl = $("thinking-fx");
+  const thinkingGlowEl = $("thinking-glow");
+  const tearFxEl = document.querySelector(".agy-effect--tear");
+  mascot.dataset.jsAmbient = "true";
+  let ambientMotionTimer = null;
+
+  function stopAmbientLoop(clearTransforms = true) {
+    if (ambientMotionTimer) {
+      clearInterval(ambientMotionTimer);
+      ambientMotionTimer = null;
+      syncAmbientLoop._tickMs = 0;
+    }
+    if (clearTransforms) {
+      const mEl = $("motion"), innerEl = $("bubble-inner");
+      if (mEl && mEl.style.transform) mEl.style.transform = "";
+      if (innerEl && innerEl.style.transform) innerEl.style.transform = "";
+      if (thinkingFxEl && thinkingFxEl.style.transform) thinkingFxEl.style.transform = "";
+      if (thinkingGlowEl && thinkingGlowEl.style.transform) thinkingGlowEl.style.transform = "";
+      if (tearFxEl) {
+        if (tearFxEl.style.transform) tearFxEl.style.transform = "";
+        if (tearFxEl.style.opacity) tearFxEl.style.opacity = "";
+      }
+    }
+  }
+
+  function syncAmbientLoop() {
+    const st = snapshot?.state;
+    const compat = isCompat();
+    const bubbleFloating = !closed && snapshot?.settings?.bubbleOn && !compat;
+    // In compat (CPU software) mode, skip subpixel 1px idle micro-scale so idle CPU stays ~0% while keeping blink/ears/ahoge/strand/glow!
+    const stateNeedsLoop = compat
+      ? (st === "thinking" || st === "warning" || st === "error")
+      : (st === "idle" || st === "thinking" || st === "warning" || st === "error");
+    const active =
+      !isEffectivelyHidden() &&
+      !snapshot?.settings?.reducedMotion &&
+      !pointer &&
+      mascot.dataset.pressed !== "true" &&
+      (stateNeedsLoop || bubbleFloating);
+
+    if (!active) {
+      stopAmbientLoop(true);
+      return;
+    }
+    const targetTickMs = compat ? 50 : 33;
+    if (ambientMotionTimer && syncAmbientLoop._tickMs === targetTickMs) return;
+    stopAmbientLoop(false);
+    syncAmbientLoop._tickMs = targetTickMs;
+
+    const mEl = $("motion"), innerEl = $("bubble-inner");
+    ambientMotionTimer = setInterval(() => {
+      const compatNow = isCompat();
+      const cur = snapshot?.state;
+      const neededNow = compatNow
+        ? (cur === "thinking" || cur === "warning" || cur === "error")
+        : (cur === "idle" || cur === "thinking" || cur === "warning" || cur === "error" || (!closed && snapshot?.settings?.bubbleOn));
+      if (isEffectivelyHidden() || !snapshot || snapshot.settings?.reducedMotion || pointer || mascot.dataset.pressed === "true" || !neededNow) {
+        stopAmbientLoop(true);
+        return;
+      }
+      const now = performance.now();
+      if (innerEl) {
+        if (!compatNow && !closed && snapshot.settings?.bubbleOn) {
+          const bw = 0.5 - 0.5 * Math.cos(((now % 3200) / 3200) * Math.PI * 2);
+          innerEl.style.transform = `translateY(${(-2.5 * bw).toFixed(2)}px)`;
+        } else if (innerEl.style.transform) {
+          innerEl.style.transform = "";
+        }
+      }
+      if (cur === "idle") {
+        if (compatNow) {
+          if (mEl && mEl.style.transform) mEl.style.transform = "";
+        } else {
+          // Exact curve of @keyframes agy-breath (4.2s ease-in-out)
+          const w = 0.5 - 0.5 * Math.cos(((now % 4200) / 4200) * Math.PI * 2);
+          if (mEl) {
+            mEl.style.transform = `translateY(${(-1.0 * w).toFixed(2)}px) scale(${(1 + 0.003 * w).toFixed(4)}, ${(1 + 0.006 * w).toFixed(4)})`;
+          }
+        }
+        if (thinkingFxEl && thinkingFxEl.style.transform) thinkingFxEl.style.transform = "";
+        if (thinkingGlowEl && thinkingGlowEl.style.transform) thinkingGlowEl.style.transform = "";
+      } else if (cur === "thinking") {
+        if (compatNow) {
+          // Keep filtered .agy-face unrotated in CPU software mode so drop-shadow bitmap stays 100% cached!
+          if (mEl && mEl.style.transform) mEl.style.transform = "";
+        } else {
+          const w = 0.5 - 0.5 * Math.cos(((now % 3200) / 3200) * Math.PI * 2);
+          const rot = -0.7 + 1.4 * w;
+          const ty = -1.0 * w;
+          if (mEl) mEl.style.transform = `rotate(${rot.toFixed(3)}deg) translateY(${ty.toFixed(2)}px)`;
+        }
+        const fw = 0.5 - 0.5 * Math.cos(((now % 2000) / 2000) * Math.PI * 2);
+        const fTrans = `translateY(${(compatNow ? Math.round(-3.0 * fw) : (-3.0 * fw).toFixed(2))}px)`;
+        if (thinkingFxEl) thinkingFxEl.style.transform = fTrans;
+        if (thinkingGlowEl) thinkingGlowEl.style.transform = fTrans;
+      } else if (cur === "warning" || cur === "error") {
+        if (compatNow) {
+          if (mEl && mEl.style.transform) mEl.style.transform = "";
+        } else {
+          const w = 0.5 - 0.5 * Math.cos(((now % 3600) / 3600) * Math.PI * 2);
+          if (mEl) mEl.style.transform = `rotate(${(-0.35 + 0.7 * w).toFixed(3)}deg) translateY(${(1.0 * w).toFixed(2)}px)`;
+        }
+        if (tearFxEl) {
+          const tw = 0.5 - 0.5 * Math.cos(((now % 2400) / 2400) * Math.PI * 2);
+          tearFxEl.style.transform = `translateY(${(4.0 * tw).toFixed(2)}px)`;
+          tearFxEl.style.opacity = (0.75 + 0.25 * tw).toFixed(3);
+        }
+      } else {
+        stopAmbientLoop(true);
+      }
+    }, targetTickMs);
+  }
+
   let curGlowLevel = 0, lastGlowDom = -1, glowMode = "off", glowStart = 0, glowFrom = 0;
 
   function applyWorkGlow(level, frameIdx = 6) {
     const lv = Math.max(0, Math.min(1, level));
     curGlowLevel = lv;
-    if (gemEl && frameIdx !== curGemStep && lv > 0.01) {
-      curGemStep = frameIdx;
-      gemEl.src = gemCache[frameIdx - 1].src;
+    const safeIdx = gemCache[frameIdx] ? frameIdx : 6;
+    if (gemEl && safeIdx !== curGemStep && lv > 0.01) {
+      curGemStep = safeIdx;
+      gemEl.src = gemCache[safeIdx].src;
     }
     if (Math.abs(lv - lastGlowDom) < 0.008 && lv > 0.005 && lv < 0.995) return;
     lastGlowDom = lv;
     if (lv <= 0.005) {
       if (gemEl) gemEl.style.opacity = "0";
       if (faceEl) faceEl.style.filter = "";
+      if (thinkingGlowEl) thinkingGlowEl.style.filter = "";
       return;
     }
     if (gemEl) gemEl.style.opacity = (0.88 * lv).toFixed(3);
-    if (faceEl) {
-      // 薄薄一层紧贴轮廓的星晶光边（最大仅 2.5px + 5.5px，不发散）
-      const r1 = (1.0 + 1.6 * lv).toFixed(2);
-      const a1 = (0.90 * lv).toFixed(3);
-      const r2 = (2.0 + 3.5 * lv).toFixed(2);
-      const a2 = (0.50 * lv).toFixed(3);
-      faceEl.style.filter = `drop-shadow(0 0 ${r1}px rgba(172, 146, 255, ${a1})) drop-shadow(0 0 ${r2}px rgba(210, 178, 255, ${a2}))`;
-    }
+    // 薄薄一层紧贴轮廓的星晶光边（最大仅 2.5px + 5.5px，不发散）
+    const r1 = (1.0 + 1.6 * lv).toFixed(2);
+    const a1 = (0.90 * lv).toFixed(3);
+    const r2 = (2.0 + 3.5 * lv).toFixed(2);
+    const a2 = (0.50 * lv).toFixed(3);
+    const filterCss = `drop-shadow(0 0 ${r1}px rgba(172, 146, 255, ${a1})) drop-shadow(0 0 ${r2}px rgba(210, 178, 255, ${a2}))`;
+    if (faceEl) faceEl.style.filter = filterCss;
+    if (thinkingGlowEl) thinkingGlowEl.style.filter = filterCss;
   }
 
   // 仅在 AI 工作时发光：1.4秒慢慢亮起 -> 工作期间保持常亮（周围薄薄一层紧贴轮廓光边） -> 结束或暂停后1.6秒慢慢消失
@@ -181,7 +305,7 @@
     if (!gemEl && !faceEl) return;
     const isWorking =
       !snapshot?.settings?.reducedMotion &&
-      !document.hidden &&
+      !isEffectivelyHidden() &&
       (snapshot?.state === "thinking" || snapshot?.persistentState === "thinking");
 
     if (isWorking && glowMode !== "working") {
@@ -191,11 +315,17 @@
       glowFrom = curGlowLevel;
       glowStart = performance.now();
       const riseMs = 1400;
+      let lastTick = 0;
 
       function riseLoop(now) {
         if (token !== gemToken || glowMode !== "working") return;
         const elapsed = now - glowStart;
         if (elapsed < riseMs) {
+          if (lastTick && now - lastTick < getFrameInterval()) {
+            gemRaf = requestAnimationFrame(riseLoop);
+            return;
+          }
+          lastTick = now;
           const p = elapsed / riseMs;
           const ease = 0.5 - 0.5 * Math.cos(p * Math.PI);
           const lv = glowFrom + (1 - glowFrom) * ease;
@@ -214,7 +344,7 @@
       cancelAnimationFrame(gemRaf);
       const token = ++gemToken;
       glowFrom = curGlowLevel;
-      if (glowFrom <= 0.01) {
+      if (glowFrom <= 0.01 || isEffectivelyHidden()) {
         glowMode = "off";
         lastGlowDom = -1;
         applyWorkGlow(0, 6);
@@ -222,9 +352,15 @@
       }
       const t0 = performance.now();
       const outMs = 1600;
+      let lastTick = 0;
       function fadeOut(now) {
         if (token !== gemToken || glowMode !== "fading") return;
         const p = Math.min(1, (now - t0) / outMs);
+        if (p < 1 && lastTick && now - lastTick < getFrameInterval()) {
+          gemRaf = requestAnimationFrame(fadeOut);
+          return;
+        }
+        lastTick = now;
         const ease = 0.5 + 0.5 * Math.cos(p * Math.PI);
         applyWorkGlow(glowFrom * ease, 6);
         if (p < 1) {
@@ -278,9 +414,15 @@
     cancelAnimationFrame(earLRaf);
     const token = ++earLToken;
     const t0 = performance.now();
+    let lastTick = 0;
     function step(now) {
       if (token !== earLToken) return;
       const p = Math.min(1, (now - t0) / durationMs);
+      if (p < 1 && lastTick && now - lastTick < getFrameInterval()) {
+        earLRaf = requestAnimationFrame(step);
+        return;
+      }
+      lastTick = now;
       setEarLStep(evalFn(p));
       if (p < 1) {
         earLRaf = requestAnimationFrame(step);
@@ -293,9 +435,15 @@
     cancelAnimationFrame(earRRaf);
     const token = ++earRToken;
     const t0 = performance.now();
+    let lastTick = 0;
     function step(now) {
       if (token !== earRToken) return;
       const p = Math.min(1, (now - t0) / durationMs);
+      if (p < 1 && lastTick && now - lastTick < getFrameInterval()) {
+        earRRaf = requestAnimationFrame(step);
+        return;
+      }
+      lastTick = now;
       setEarRStep(evalFn(p));
       if (p < 1) {
         earRRaf = requestAnimationFrame(step);
@@ -308,9 +456,15 @@
     cancelAnimationFrame(ahogeRaf);
     const token = ++ahogeToken;
     const t0 = performance.now();
+    let lastTick = 0;
     function step(now) {
       if (token !== ahogeToken) return;
       const p = Math.min(1, (now - t0) / durationMs);
+      if (p < 1 && lastTick && now - lastTick < getFrameInterval()) {
+        ahogeRaf = requestAnimationFrame(step);
+        return;
+      }
+      lastTick = now;
       const [deg, dy, sy = 1] = evalFn(p);
       setAhogePose(deg, dy, sy);
       if (p < 1) {
@@ -341,6 +495,7 @@
   // 左耳向下 / 右耳向下 / 双耳同时向下 / 左耳先下右耳紧跟 / 右耳先下左耳紧跟（先后间隔 170~250ms）
   function scheduleEarAction() {
     clearTimeout(earIdleTimer);
+    if (isEffectivelyHidden()) return;
     const delay = 7000 + Math.floor(Math.random() * 7000);
     earIdleTimer = setTimeout(() => {
       const s = snapshot?.settings;
@@ -350,7 +505,7 @@
         isPartHeld("earR") ||
         partReleaseTimers.earL ||
         partReleaseTimers.earR;
-      if (!s?.reducedMotion && !earBusy && !document.hidden) {
+      if (!s?.reducedMotion && !earBusy && !isEffectivelyHidden()) {
         const modes = ["left", "right", "both", "left-then-right", "right-then-left"];
         const mode = modes[Math.floor(Math.random() * modes.length)];
         const peak = 6; // 常态下压幅度适中自然，按压时压到底(8)
@@ -370,7 +525,7 @@
               !pointer &&
               !isPartHeld(secondPart) &&
               !partReleaseTimers[secondPart] &&
-              !document.hidden
+              !isEffectivelyHidden()
             ) {
               runSingleEarTwitch(second, peak, false);
             }
@@ -388,10 +543,11 @@
   // 常态呆毛动作：每隔 3.5~6.5 秒慢速明显晃动一次（约 2.8 秒慢周期，峰值 ±12° 肉眼清晰可见且节奏舒缓）
   function scheduleAhogeAction(initial = false) {
     clearTimeout(ahogeIdleTimer);
+    if (isEffectivelyHidden()) return;
     const delay = initial ? 1000 : (3500 + Math.floor(Math.random() * 3000));
     ahogeIdleTimer = setTimeout(() => {
       const s = snapshot?.settings;
-      if (!s?.reducedMotion && !pointer && !isPartHeld("ahoge") && !partReleaseTimers.ahoge && !document.hidden) {
+      if (!s?.reducedMotion && !pointer && !isPartHeld("ahoge") && !partReleaseTimers.ahoge && !isEffectivelyHidden()) {
         const dir = Math.random() < 0.5 ? 1 : -1;
         runAhogeTween(2800, p => {
           const envelope = Math.sin(p * Math.PI);
@@ -485,10 +641,12 @@
 
   function scheduleBlink() {
     clearTimeout(blinkTimer);
+    if (isEffectivelyHidden()) return;
     const delay = 3200 + Math.floor(Math.random() * 3800);
     blinkTimer = setTimeout(() => {
       const s = snapshot?.settings;
       if (
+        !isEffectivelyHidden() &&
         s?.autoBlink !== false &&
         !s?.reducedMotion &&
         !mascot.dataset.expression &&
@@ -508,23 +666,47 @@
 
   function stopSound() {
     gesture++;
-    if (currentSound) {
-      currentSound.pause();
-      currentSound.currentTime = 0;
-      currentSound = null;
+    for (const snd of activeSounds) {
+      try {
+        snd.pause();
+        snd.currentTime = 0;
+      } catch {}
     }
+    activeSounds.clear();
+  }
+
+  const activeSounds = new Set();
+  const audioPayloadCache = new Map();
+
+  function invalidateAudioCache() {
+    audioPayloadCache.clear();
+  }
+
+  async function resolveAudioPayload(kind) {
+    const isEvent = kind === "turnDone" || kind === "waiting";
+    if (!isEvent && (!snapshot?.settings.sound || snapshot.settings.volume === 0)) return null;
+    if (audioPayloadCache.has(kind)) return audioPayloadCache.get(kind);
+    const payload = await api.audio(kind);
+    if (payload) audioPayloadCache.set(kind, payload);
+    return payload;
   }
 
   async function play(kind) {
-    const token = ++gesture;
-    if (currentSound) currentSound.pause();
-    const isEvent = kind === "turnDone" || kind === "waiting";
-    if (!isEvent && (!snapshot?.settings.sound || snapshot.settings.volume === 0)) return;
-    const payload = await api.audio(kind);
-    if (token !== gesture || !payload) return;
-    currentSound = new Audio(payload.url);
-    currentSound.volume = payload.effectiveVolume;
-    currentSound.play().catch(() => {});
+    const stopGen = gesture;
+    const payload = await resolveAudioPayload(kind);
+    if (stopGen !== gesture || !payload) return;
+    while (activeSounds.size >= 6) {
+      const oldest = activeSounds.values().next().value;
+      activeSounds.delete(oldest);
+      try { oldest.pause(); } catch {}
+    }
+    const snd = new Audio(payload.url);
+    snd.volume = payload.effectiveVolume;
+    const cleanup = () => activeSounds.delete(snd);
+    snd.addEventListener("ended", cleanup, { once: true });
+    snd.addEventListener("error", cleanup, { once: true });
+    activeSounds.add(snd);
+    snd.play().catch(cleanup);
   }
 
   function nextTalkLine() {
@@ -546,9 +728,11 @@
     mascot.dataset.reducedMotion = String(s.reducedMotion);
     mascot.dataset.theme = s.bubbleTheme || "crystal";
     mascot.dataset.hideTools = String(Boolean(s.hideHoverTools));
+    syncAmbientLoop();
 
     const open = !closed && s.bubbleOn;
     bubbleVisibility(open);
+    syncAmbientLoop();
     if (!open) return;
 
     const showQuota = !temporary && selected === "quota";
@@ -584,9 +768,10 @@
         if (known) $("track" + suffix).setAttribute("aria-valuenow", value);
         else $("track" + suffix).removeAttribute("aria-valuenow");
       }
-      $("caption").textContent = s.manualQuota ? "手动记录" : "";
+      const portMissing = !s.manualQuota && snapshot.quotaWindows?.cdpMissing === true;
+      $("caption").textContent = s.manualQuota ? "手动记录" : portMissing ? "未开启额度端口" : "";
     } else {
-      $("title").textContent = "喵言喵语";
+      $("title").textContent = "星语猫娘";
       $("value").classList.add("agy-phrase");
       if (!talkLine) nextTalkLine();
       $("value").textContent = talkLine;
@@ -743,10 +928,25 @@
     return grid;
   })();
 
+  let cachedFaceRect = null, cachedFaceRectAt = 0;
+  function invalidateFaceRect() {
+    cachedFaceRect = null;
+    cachedFaceRectAt = 0;
+  }
+  function getFaceRect() {
+    if (!faceEl) return null;
+    const now = performance.now();
+    if (!cachedFaceRect || now - cachedFaceRectAt > 120) {
+      cachedFaceRect = faceEl.getBoundingClientRect();
+      cachedFaceRectAt = now;
+    }
+    return cachedFaceRect;
+  }
+  window.addEventListener("resize", invalidateFaceRect);
+
   function hitTestPart(clientX, clientY) {
-    if (!faceEl) return "body";
-    const r = faceEl.getBoundingClientRect();
-    if (!r.width || !r.height) return "body";
+    const r = getFaceRect();
+    if (!r || !r.width || !r.height) return "body";
     let u = (clientX - r.left) / r.width;
     const v = (clientY - r.top) / r.height;
     if (u < 0 || u >= 1 || v < 0 || v >= 1) return "body";
@@ -819,8 +1019,10 @@
   }
 
   function animatePress(pressed) {
+    invalidateFaceRect();
     motion.dataset.pressed = String(pressed);
     mascot.dataset.pressed = String(pressed);
+    syncAmbientLoop();
     if (snapshot?.settings?.reducedMotion) {
       if (pressed || !isPartHeld("earL")) setEarLStep(pressed ? 8 : 0);
       if (pressed || !isPartHeld("earR")) setEarRStep(pressed ? 8 : 0);
@@ -836,7 +1038,8 @@
         partSeqs[k]++;
       }
       triggerBlushWarmth();
-      cancelAnimationFrame(strandRaf);
+      clearTimeout(strandStepTimer);
+      strandStepTimer = null;
       strandToken++;
       setStrandStep(2);
       const startL = curEarL, startR = curEarR;
@@ -1082,17 +1285,47 @@
     play("press");
   });
 
+  let dragMoveRaf = 0, pendingDragPoint = null;
+  function flushDragMove() {
+    if (dragMoveRaf) {
+      cancelAnimationFrame(dragMoveRaf);
+      dragMoveRaf = 0;
+    }
+    if (pendingDragPoint && pointer) {
+      const pt = pendingDragPoint;
+      pendingDragPoint = null;
+      if (typeof api.dragMove === "function") api.dragMove(pt);
+      else api.pointer({ action: "move", point: pt });
+    } else {
+      pendingDragPoint = null;
+    }
+  }
+
   motion.addEventListener("pointermove", e => {
     if (partPointer) return;
     if (pointer) {
       if (Math.hypot(e.screenX - pointer.x, e.screenY - pointer.y) > 8) pointer.moved = true;
-      api.pointer({ action: "move", point: { x: e.screenX, y: e.screenY } });
+      pendingDragPoint = { x: e.screenX, y: e.screenY };
+      if (!dragMoveRaf) {
+        dragMoveRaf = requestAnimationFrame(() => {
+          dragMoveRaf = 0;
+          if (pendingDragPoint && pointer) {
+            const pt = pendingDragPoint;
+            pendingDragPoint = null;
+            if (typeof api.dragMove === "function") api.dragMove(pt);
+            else api.pointer({ action: "move", point: pt });
+          }
+        });
+      }
       return;
     }
     if (hasSideButtonHeld()) return;
     const hoverPart = hitTestPart(e.clientX, e.clientY);
-    if (hoverPart !== "body") motion.dataset.hoverPart = hoverPart;
-    else delete motion.dataset.hoverPart;
+    if (hoverPart !== "body") {
+      if (motion.dataset.hoverPart !== hoverPart) motion.dataset.hoverPart = hoverPart;
+    } else if (motion.dataset.hoverPart) {
+      delete motion.dataset.hoverPart;
+    }
 
     const now = Date.now();
     hoverCount = now - hoverTime < 250 ? hoverCount + 1 : 1;
@@ -1111,6 +1344,7 @@
 
   async function release(cancel = false) {
     if (!pointer) return;
+    flushDragMove();
     const seq = pointer.seq;
     const wasMoved = pointer.moved;
     pointer = null;
@@ -1162,9 +1396,68 @@
     api.hit(false);
   });
 
+  function syncHibernation() {
+    const hiddenNow = isEffectivelyHidden();
+    if (hiddenNow) {
+      mascot.dataset.paused = "true";
+      stopAmbientLoop(true);
+      clearTimeout(blinkTimer);
+      clearTimeout(blinkResetTimer);
+      delete mascot.dataset.blink;
+      clearTimeout(earIdleTimer);
+      clearTimeout(earSeqTimer);
+      clearTimeout(ahogeIdleTimer);
+      clearTimeout(strandIdleTimer);
+      clearTimeout(strandStepTimer);
+      strandStepTimer = null;
+      strandToken++;
+      cancelAnimationFrame(earLRaf);
+      cancelAnimationFrame(earRRaf);
+      cancelAnimationFrame(ahogeRaf);
+      cancelAnimationFrame(blushRaf);
+      cancelAnimationFrame(gemRaf);
+      earLToken++;
+      earRToken++;
+      ahogeToken++;
+      blushToken++;
+      gemToken++;
+      setEarSteps(0, 0);
+      setAhogePose(0, 0, 1);
+      setStrandStep(0);
+      curBlushOpacity = 0;
+      if (blushEl) blushEl.style.opacity = "0";
+      glowMode = "off";
+      lastGlowDom = -1;
+      applyWorkGlow(0, 6);
+    } else {
+      delete mascot.dataset.paused;
+      invalidateFaceRect();
+      scheduleBlink();
+      scheduleEarAction();
+      scheduleAhogeAction(false);
+      scheduleStrandAction(false);
+      syncGemState();
+      render();
+    }
+  }
+
+  if (typeof api.onVisibility === "function") {
+    api.onVisibility(visible => {
+      const next = visible !== false;
+      if (windowVisible !== next) {
+        windowVisible = next;
+        syncHibernation();
+      }
+    });
+  }
+  document.addEventListener("visibilitychange", syncHibernation);
+
   api.subscribe(data => {
     const prevCustom = snapshot?.settings?.customLines;
     const prevMode = snapshot?.settings?.customLinesMode;
+    const prevScale = snapshot?.displayScale || snapshot?.settings?.scale;
+    const prevFacing = snapshot?.facing;
+    invalidateAudioCache();
     if (
       snapshot &&
       (!data.settings.sound ||
@@ -1173,8 +1466,18 @@
     ) {
       stopSound();
     }
-    snapshot = data;
-    syncPersonality();
+    snapshot = {
+      ...data,
+      dialogue: data.dialogue || snapshot?.dialogue,
+      presets: data.presets || snapshot?.presets,
+      eventSounds: data.eventSounds || snapshot?.eventSounds
+    };
+    if ((snapshot.displayScale || snapshot.settings?.scale) !== prevScale || snapshot.facing !== prevFacing) {
+      invalidateFaceRect();
+    }
+    if (data.dialogue || prevCustom !== data.settings.customLines || prevMode !== data.settings.customLinesMode || !personality) {
+      syncPersonality();
+    }
     if (prevCustom !== data.settings.customLines || prevMode !== data.settings.customLinesMode) {
       nextTalkLine();
     }
@@ -1200,7 +1503,7 @@
         "本次对话完成",
         format(direct) + " tok",
         "入 " + format(t.input) + " · 出 " + format(t.output),
-        snapshot?.settings.turnCostDurationMs || 6500,
+        snapshot?.settings.turnCostDurationMs ?? 5000,
         meta
       );
       if (!snapshot?.settings.turnDoneSound) play("release");
@@ -1247,7 +1550,18 @@
   }
 
   api.onReaction(() => reaction(true));
-  const ambient = setInterval(() => reaction(), 30000);
+  if (typeof api.onOpenQuota === "function") {
+    api.onOpenQuota(() => {
+      clearTimeout(timeout);
+      temporary = null;
+      closed = false;
+      selected = "quota";
+      armBubble();
+      render();
+      pulseContent();
+    });
+  }
+  const ambient = setInterval(() => { if (!isEffectivelyHidden()) reaction(); }, 30000);
 
   snapshot = await api.get();
   syncPersonality();
@@ -1277,14 +1591,16 @@
     clearTimeout(earSeqTimer);
     clearTimeout(ahogeIdleTimer);
     clearTimeout(strandIdleTimer);
+    clearTimeout(strandStepTimer);
     clearTimeout(gemIdleTimer);
     clearInterval(gemThinkingTimer);
+    cancelAnimationFrame(dragMoveRaf);
     cancelAnimationFrame(earLRaf);
     cancelAnimationFrame(earRRaf);
     cancelAnimationFrame(ahogeRaf);
-    cancelAnimationFrame(strandRaf);
     cancelAnimationFrame(blushRaf);
     cancelAnimationFrame(gemRaf);
+    stopAmbientLoop(false);
     clearInterval(ambient);
     stopSound();
   });

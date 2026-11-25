@@ -2,9 +2,17 @@
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
+
+[assembly: AssemblyTitle("Star Neko Guard")]
+[assembly: AssemblyDescription("Star Neko Guard")]
+[assembly: AssemblyProduct("Star Neko Widget")]
+[assembly: AssemblyCompany("Antigravity Star Neko")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 internal static class LaunchAntigravityWithWidget {
     private static string QuoteArg(string arg) {
@@ -46,6 +54,20 @@ internal static class LaunchAntigravityWithWidget {
         string envPath = Environment.GetEnvironmentVariable("ANTIGRAVITY_EXE");
         if (!string.IsNullOrEmpty(envPath) && File.Exists(envPath)) return envPath;
 
+        // Prefer inspecting currently running Antigravity process first so custom install locations always match
+        var procs = Process.GetProcessesByName("Antigravity");
+        try {
+            foreach (var p in procs) {
+                try {
+                    string fn = p.MainModule.FileName;
+                    if (!string.IsNullOrEmpty(fn) && File.Exists(fn)) return fn;
+                } catch {
+                }
+            }
+        } finally {
+            foreach (var p in procs) p.Dispose();
+        }
+
         string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         string progFiles = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles);
         string progFilesX86 = Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86);
@@ -67,7 +89,6 @@ internal static class LaunchAntigravityWithWidget {
             if (File.Exists(c)) return c;
         }
 
-        // Fallback 1: check Uninstall registry entries
         var roots = new[] { Registry.CurrentUser, Registry.LocalMachine };
         var subPaths = new[] {
             @"Software\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -108,21 +129,134 @@ internal static class LaunchAntigravityWithWidget {
             }
         }
 
-        // Fallback 2: inspect currently running Antigravity process
-        var procs = Process.GetProcessesByName("Antigravity");
+        return null;
+    }
+
+    // If user's Desktop Antigravity.lnk already points to LaunchAntigravityWithWidget.exe,
+    // heal Start Menu Antigravity.lnk whenever an Antigravity update resets it back to raw Antigravity.exe.
+    private static void RepairStartMenuShortcutIfOptedIn() {
         try {
-            foreach (var p in procs) {
-                try {
-                    string fn = p.MainModule.FileName;
-                    if (!string.IsNullOrEmpty(fn) && File.Exists(fn)) return fn;
-                } catch {
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            string startPrograms = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+            if (string.IsNullOrEmpty(desktop) || string.IsNullOrEmpty(startPrograms)) return;
+
+            string desktopLnk = Path.Combine(desktop, "Antigravity.lnk");
+            if (!File.Exists(desktopLnk)) return;
+
+            Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType == null) return;
+            object shell = Activator.CreateInstance(shellType);
+            try {
+                object dSc = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { desktopLnk });
+                if (dSc == null) return;
+                string dTarget = dSc.GetType().InvokeMember("TargetPath", BindingFlags.GetProperty, null, dSc, null) as string;
+                string dArgs = dSc.GetType().InvokeMember("Arguments", BindingFlags.GetProperty, null, dSc, null) as string;
+                string dWork = dSc.GetType().InvokeMember("WorkingDirectory", BindingFlags.GetProperty, null, dSc, null) as string;
+                if (string.IsNullOrEmpty(dTarget) ||
+                    !dTarget.EndsWith("LaunchAntigravityWithWidget.exe", StringComparison.OrdinalIgnoreCase) ||
+                    !File.Exists(dTarget)) {
+                    return;
+                }
+
+                string[] startMenuCandidates = new[] {
+                    Path.Combine(startPrograms, "Antigravity.lnk"),
+                    Path.Combine(startPrograms, "Antigravity", "Antigravity.lnk")
+                };
+                foreach (string smLnk in startMenuCandidates) {
+                    if (!File.Exists(smLnk)) continue;
+                    try {
+                        object sSc = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { smLnk });
+                        if (sSc == null) continue;
+                        Type scType = sSc.GetType();
+                        string curTarget = scType.InvokeMember("TargetPath", BindingFlags.GetProperty, null, sSc, null) as string;
+                        if (!string.Equals(curTarget, dTarget, StringComparison.OrdinalIgnoreCase)) {
+                            scType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, sSc, new object[] { dTarget });
+                            scType.InvokeMember("Arguments", BindingFlags.SetProperty, null, sSc, new object[] { dArgs ?? "" });
+                            scType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, sSc, new object[] { string.IsNullOrEmpty(dWork) ? Path.GetDirectoryName(dTarget) : dWork });
+                            scType.InvokeMember("Save", BindingFlags.InvokeMethod, null, sSc, null);
+                        }
+                    } catch {
+                    }
+                }
+            } finally {
+                if (shell != null && MarshalIsComObject(shell)) {
+                    try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); } catch {}
                 }
             }
-        } finally {
-            foreach (var p in procs) p.Dispose();
+        } catch {
         }
+    }
 
-        return null;
+    private static bool MarshalIsComObject(object o) {
+        try { return System.Runtime.InteropServices.Marshal.IsComObject(o); } catch { return false; }
+    }
+
+    private static void BindShortcutsToLauncher(string launcherExe, string launcherArgs, string agyExe) {
+        if (string.IsNullOrEmpty(launcherExe) || !File.Exists(launcherExe)) return;
+        try {
+            string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+            string startPrograms = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
+            var candidates = new List<string>();
+            if (!string.IsNullOrEmpty(desktop)) {
+                candidates.Add(Path.Combine(desktop, "Antigravity.lnk"));
+            }
+            if (!string.IsNullOrEmpty(startPrograms)) {
+                candidates.Add(Path.Combine(startPrograms, "Antigravity.lnk"));
+                candidates.Add(Path.Combine(startPrograms, "Antigravity", "Antigravity.lnk"));
+            }
+
+            var targets = new List<string>();
+            foreach (string c in candidates) {
+                if (File.Exists(c)) targets.Add(c);
+            }
+            if (targets.Count == 0 && !string.IsNullOrEmpty(startPrograms)) {
+                targets.Add(Path.Combine(startPrograms, "Antigravity.lnk"));
+            }
+            if (targets.Count == 0) return;
+
+            Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+            if (shellType == null) return;
+            object shell = Activator.CreateInstance(shellType);
+            try {
+                string workDir = Path.GetDirectoryName(launcherExe);
+                string defaultIcon = (!string.IsNullOrEmpty(agyExe) && File.Exists(agyExe)) ? (agyExe + ",0") : null;
+                foreach (string lnk in targets) {
+                    try {
+                        object sc = shellType.InvokeMember("CreateShortcut", BindingFlags.InvokeMethod, null, shell, new object[] { lnk });
+                        if (sc == null) continue;
+                        Type scType = sc.GetType();
+                        scType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, sc, new object[] { launcherExe });
+                        scType.InvokeMember("Arguments", BindingFlags.SetProperty, null, sc, new object[] { launcherArgs ?? "" });
+                        scType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, sc, new object[] { workDir });
+                        if (!string.IsNullOrEmpty(defaultIcon)) {
+                            scType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, sc, new object[] { defaultIcon });
+                        }
+                        scType.InvokeMember("Save", BindingFlags.InvokeMethod, null, sc, null);
+                    } catch {
+                    }
+                }
+            } finally {
+                if (shell != null && MarshalIsComObject(shell)) {
+                    try { System.Runtime.InteropServices.Marshal.FinalReleaseComObject(shell); } catch {}
+                }
+            }
+        } catch {
+        }
+    }
+
+    private static bool IsWidgetLockHeld(string dataDir) {
+        if (string.IsNullOrEmpty(dataDir)) return false;
+        try {
+            string lockPath = Path.Combine(dataDir, "runtime", "lockfile");
+            if (!File.Exists(lockPath)) return false;
+            using (File.Open(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None)) {
+                return false;
+            }
+        } catch (IOException) {
+            return true;
+        } catch {
+            return false;
+        }
     }
 
     private static Process StartClean(string exe, string workDir, string args) {
@@ -133,6 +267,31 @@ internal static class LaunchAntigravityWithWidget {
         };
         psi.EnvironmentVariables.Remove("ELECTRON_RUN_AS_NODE");
         return Process.Start(psi);
+    }
+
+    private static int GetPrimaryHostPid(int sessionId) {
+        var list = Process.GetProcessesByName("Antigravity");
+        int fallbackPid = 0;
+        try {
+            foreach (var p in list) {
+                try {
+                    if (p.SessionId != sessionId) continue;
+                    if (p.MainWindowHandle != IntPtr.Zero) return p.Id;
+                    if (fallbackPid == 0) fallbackPid = p.Id;
+                } catch {
+                }
+            }
+            return fallbackPid;
+        } finally {
+            foreach (var p in list) p.Dispose();
+        }
+    }
+
+    private static bool AnyUpdaterAlive(int sessionId) {
+        foreach (var name in new[] { "Update", "AntigravitySetup" }) {
+            if (AnyInSession(name, sessionId)) return true;
+        }
+        return false;
     }
 
     private static bool AnyInSession(string processName, int sessionId) {
@@ -161,10 +320,54 @@ internal static class LaunchAntigravityWithWidget {
         }
     }
 
-    private static void StopWidget(string widgetExe, string widgetBaseArgs, bool isStarWidgetExe, int spawnedPid, int sessionId) {
+    private static void CloseExistingAntigravity(int sessionId) {
+        var initial = Process.GetProcessesByName("Antigravity");
+        try {
+            foreach (var p in initial) {
+                try {
+                    if (p.SessionId == sessionId && p.MainWindowHandle != IntPtr.Zero) {
+                        p.CloseMainWindow();
+                    }
+                } catch {
+                }
+            }
+        } finally {
+            foreach (var p in initial) p.Dispose();
+        }
+
+        for (int i = 0; i < 22 && AnyInSession("Antigravity", sessionId); i++) {
+            Thread.Sleep(250);
+        }
+
+        if (AnyInSession("Antigravity", sessionId)) {
+            var remain = Process.GetProcessesByName("Antigravity");
+            try {
+                foreach (var p in remain) {
+                    try {
+                        if (p.SessionId == sessionId) p.Kill();
+                    } catch {
+                    }
+                }
+            } finally {
+                foreach (var p in remain) p.Dispose();
+            }
+            for (int i = 0; i < 8 && AnyInSession("Antigravity", sessionId); i++) {
+                Thread.Sleep(200);
+            }
+        }
+
+        try {
+            string appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            string portFile = Path.Combine(appData, "Antigravity", "DevToolsActivePort");
+            if (File.Exists(portFile)) File.Delete(portFile);
+        } catch {
+        }
+    }
+
+    private static void StopWidget(string widgetExe, string widgetBaseArgs, string extraFlags, bool isStarWidgetExe, int spawnedPid, int sessionId) {
         if (!string.IsNullOrEmpty(widgetExe) && File.Exists(widgetExe)) {
             try {
-                string quitArgs = string.IsNullOrEmpty(widgetBaseArgs) ? "--quit" : (widgetBaseArgs + " --quit");
+                string quitArgs = (string.IsNullOrEmpty(widgetBaseArgs) ? "--quit" : (widgetBaseArgs + " --quit")) + (extraFlags ?? "");
                 var psi = new ProcessStartInfo(widgetExe, quitArgs) {
                     WorkingDirectory = Path.GetDirectoryName(widgetExe),
                     UseShellExecute = false,
@@ -223,6 +426,32 @@ internal static class LaunchAntigravityWithWidget {
     [STAThread]
     public static void Main(string[] args) {
         string baseDir = AppDomain.CurrentDomain.BaseDirectory;
+        int sessionId = Process.GetCurrentProcess().SessionId;
+
+        bool relaunchHost = false;
+        bool attachOnly = false;
+        bool bindShortcuts = false;
+        int waitPid = 0;
+        string overrideWidgetExe = null;
+        string overrideAppDir = null;
+        string overrideDataDir = null;
+        bool overrideNoShortcuts = false;
+        var passthroughArgs = new List<string>();
+
+        for (int i = 0; i < args.Length; i++) {
+            string a = args[i] ?? "";
+            if (a == "--relaunch-host") relaunchHost = true;
+            else if (a == "--attach") attachOnly = true;
+            else if (a == "--bind-shortcuts") bindShortcuts = true;
+            else if (a.StartsWith("--wait-pid=", StringComparison.OrdinalIgnoreCase)) Int32.TryParse(a.Substring(11).Trim('"'), out waitPid);
+            else if (a.StartsWith("--widget-exe=", StringComparison.OrdinalIgnoreCase)) overrideWidgetExe = a.Substring(13).Trim('"');
+            else if (a.StartsWith("--widget-app=", StringComparison.OrdinalIgnoreCase)) overrideAppDir = a.Substring(13).Trim('"');
+            else if (a.StartsWith("--data-dir=", StringComparison.OrdinalIgnoreCase)) overrideDataDir = a.Substring(11).Trim('"');
+            else if (a == "--no-shortcuts") overrideNoShortcuts = true;
+            else passthroughArgs.Add(a);
+        }
+
+        RepairStartMenuShortcutIfOptedIn();
         string agyExe = FindAntigravityExe();
 
         string widgetExe = Path.Combine(baseDir, "StarWidget.exe");
@@ -230,7 +459,15 @@ internal static class LaunchAntigravityWithWidget {
         string widgetWorkDir = baseDir;
         bool isStarWidgetExe = true;
 
-        if (!File.Exists(widgetExe)) {
+        if (!string.IsNullOrEmpty(overrideWidgetExe) && File.Exists(overrideWidgetExe)) {
+            widgetExe = overrideWidgetExe;
+            widgetWorkDir = Path.GetDirectoryName(overrideWidgetExe);
+            isStarWidgetExe = Path.GetFileName(overrideWidgetExe).Equals("StarWidget.exe", StringComparison.OrdinalIgnoreCase);
+            if (!isStarWidgetExe && !string.IsNullOrEmpty(overrideAppDir) && Directory.Exists(overrideAppDir)) {
+                widgetBaseArgs = QuoteArg(overrideAppDir);
+                widgetWorkDir = overrideAppDir;
+            }
+        } else if (!File.Exists(widgetExe)) {
             string electronExe = Path.Combine(baseDir, "app", "node_modules", "electron", "dist", "electron.exe");
             string appDir = Path.Combine(baseDir, "app");
             if (File.Exists(electronExe)) {
@@ -241,16 +478,56 @@ internal static class LaunchAntigravityWithWidget {
             }
         }
 
-        bool attachOnly = args.Length == 1 && args[0] == "--attach";
-        if (!attachOnly && !string.IsNullOrEmpty(agyExe)) {
+        string effectiveDataDir = !string.IsNullOrEmpty(overrideDataDir)
+            ? overrideDataDir
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".antigravity-cat-widget");
+
+        if (bindShortcuts && !overrideNoShortcuts) {
+            string selfExe = Assembly.GetExecutingAssembly().Location;
+            bool localAutoDiscoverable =
+                File.Exists(Path.Combine(baseDir, "StarWidget.exe")) ||
+                File.Exists(Path.Combine(baseDir, "app", "node_modules", "electron", "dist", "electron.exe"));
+            string normBase = Path.GetFullPath(baseDir).TrimEnd('\\') + "\\";
+            bool widgetInsideBase = !string.IsNullOrEmpty(widgetExe) &&
+                File.Exists(widgetExe) &&
+                Path.GetFullPath(widgetExe).StartsWith(normBase, StringComparison.OrdinalIgnoreCase);
+            var scArgs = new StringBuilder();
+            if (!localAutoDiscoverable || !widgetInsideBase) {
+                if (!string.IsNullOrEmpty(widgetExe)) {
+                    scArgs.Append(QuoteArg("--widget-exe=" + widgetExe));
+                }
+                if (!isStarWidgetExe && !string.IsNullOrEmpty(overrideAppDir)) {
+                    if (scArgs.Length > 0) scArgs.Append(' ');
+                    scArgs.Append(QuoteArg("--widget-app=" + overrideAppDir));
+                }
+            }
+            BindShortcutsToLauncher(selfExe, scArgs.ToString(), agyExe);
+        }
+
+        var extraWidgetFlags = new StringBuilder();
+        if (!string.IsNullOrEmpty(overrideDataDir)) {
+            extraWidgetFlags.Append(" ").Append(QuoteArg("--data-dir=" + overrideDataDir));
+        }
+        if (overrideNoShortcuts) {
+            extraWidgetFlags.Append(" --no-shortcuts");
+        }
+        string extraFlagsStr = extraWidgetFlags.ToString();
+
+        if (relaunchHost) {
+            if (string.IsNullOrEmpty(agyExe)) return;
+            CloseExistingAntigravity(sessionId);
+            RepairStartMenuShortcutIfOptedIn();
+            StartClean(agyExe, Path.GetDirectoryName(agyExe), "--remote-debugging-port=0");
+            Thread.Sleep(1200);
+        } else if (!attachOnly && !string.IsNullOrEmpty(agyExe)) {
             var argStr = new StringBuilder();
             bool hasDebugPort = false;
-            for (int i = 0; i < args.Length; i++) {
-                if (args[i].StartsWith("--remote-debugging-port", StringComparison.OrdinalIgnoreCase)) {
+            for (int i = 0; i < passthroughArgs.Count; i++) {
+                if (passthroughArgs[i].StartsWith("--remote-debugging-port", StringComparison.OrdinalIgnoreCase)) {
                     hasDebugPort = true;
                 }
                 if (i > 0) argStr.Append(' ');
-                argStr.Append(QuoteArg(args[i]));
+                argStr.Append(QuoteArg(passthroughArgs[i]));
             }
             if (!hasDebugPort) {
                 if (argStr.Length > 0) argStr.Append(' ');
@@ -259,7 +536,20 @@ internal static class LaunchAntigravityWithWidget {
             StartClean(agyExe, Path.GetDirectoryName(agyExe), argStr.ToString());
         }
 
-        string startWidgetArgs = string.IsNullOrEmpty(widgetBaseArgs) ? "--background" : (widgetBaseArgs + " --background");
+        if (waitPid > 0) {
+            try {
+                using (var oldProc = Process.GetProcessById(waitPid)) {
+                    oldProc.WaitForExit(5000);
+                }
+            } catch {
+            }
+            for (int i = 0; i < 15 && IsWidgetLockHeld(effectiveDataDir); i++) {
+                Thread.Sleep(60);
+            }
+            Thread.Sleep(80);
+        }
+
+        string startWidgetArgs = (string.IsNullOrEmpty(widgetBaseArgs) ? "--background" : (widgetBaseArgs + " --background")) + extraFlagsStr;
         int spawnedWidgetPid = 0;
         var widgetProc = StartClean(widgetExe, widgetWorkDir, startWidgetArgs);
         if (widgetProc != null) {
@@ -271,9 +561,9 @@ internal static class LaunchAntigravityWithWidget {
         using (var mutex = new Mutex(true, "Local\\AntigravityStarWidgetLifecycle", out isOwner)) {
             if (!isOwner) return;
 
-            int sessionId = Process.GetCurrentProcess().SessionId;
             bool hostSeen = false;
             bool widgetSeen = false;
+            int lastHostPid = 0;
             int hostGoneCount = 0;
             int widgetGoneCount = 0;
             var startedAt = Stopwatch.StartNew();
@@ -281,22 +571,42 @@ internal static class LaunchAntigravityWithWidget {
             while (true) {
                 Thread.Sleep(1500);
 
-                bool hostAlive = AnyInSession("Antigravity", sessionId);
+                int curHostPid = GetPrimaryHostPid(sessionId);
+                bool hostAlive = curHostPid > 0;
                 bool widgetAlive = isStarWidgetExe
-                    ? AnyInSession("StarWidget", sessionId)
-                    : IsPidAlive(spawnedWidgetPid);
+                    ? (AnyInSession("StarWidget", sessionId) || IsWidgetLockHeld(effectiveDataDir))
+                    : (IsPidAlive(spawnedWidgetPid) || IsWidgetLockHeld(effectiveDataDir) || AnyInSession("ForegroundHost", sessionId));
 
                 if (hostAlive) {
+                    bool hostRestarted = hostSeen && (hostGoneCount > 0 || (lastHostPid > 0 && curHostPid != lastHostPid));
+                    if (hostRestarted) {
+                        // Antigravity restarted (e.g. in-app --updated relaunch): heal Start Menu shortcut & re-ensure widget!
+                        RepairStartMenuShortcutIfOptedIn();
+                        if (!widgetAlive) {
+                            var wp = StartClean(widgetExe, widgetWorkDir, startWidgetArgs);
+                            if (wp != null) {
+                                try { spawnedWidgetPid = wp.Id; widgetAlive = true; } catch { }
+                                wp.Dispose();
+                            }
+                        }
+                    }
+                    lastHostPid = curHostPid;
                     hostSeen = true;
                     hostGoneCount = 0;
                 } else if (hostSeen) {
-                    hostGoneCount++;
-                    if (hostGoneCount >= 2) {
-                        StopWidget(widgetExe, widgetBaseArgs, isStarWidgetExe, spawnedWidgetPid, sessionId);
+                    if (AnyUpdaterAlive(sessionId)) {
+                        hostGoneCount = 1;
+                    } else {
+                        hostGoneCount++;
+                    }
+                    // Allow ~45s silent grace window (widget window is already hidden by ForegroundHost in 50ms)
+                    // so even slow Antigravity updates reattach automatically without losing the catgirl.
+                    if (hostGoneCount >= 30) {
+                        StopWidget(widgetExe, widgetBaseArgs, extraFlagsStr, isStarWidgetExe, spawnedWidgetPid, sessionId);
                         break;
                     }
                 } else if (startedAt.ElapsedMilliseconds > 30000) {
-                    StopWidget(widgetExe, widgetBaseArgs, isStarWidgetExe, spawnedWidgetPid, sessionId);
+                    StopWidget(widgetExe, widgetBaseArgs, extraFlagsStr, isStarWidgetExe, spawnedWidgetPid, sessionId);
                     break;
                 }
 
@@ -304,6 +614,7 @@ internal static class LaunchAntigravityWithWidget {
                     widgetSeen = true;
                     widgetGoneCount = 0;
                 } else if (widgetSeen) {
+                    if (hostGoneCount > 0) continue;
                     widgetGoneCount++;
                     if (widgetGoneCount >= 4) break;
                 } else if (startedAt.ElapsedMilliseconds > 20000) {

@@ -46,13 +46,19 @@ $useSuite = (-not $Standalone) -and $hasSuite -and $Force
 if ($useSuite) {
     Write-Host "[2/3] 已指定 -Force，准备备份并替换原版 AntigravityStarSuite..." -ForegroundColor Cyan
 
-    # 仅按目标安装目录路径匹配并结束进程，不按进程名批量杀
+    # 结束原版目录及预览沙盒中的桌宠/守护进程，避免单实例锁或文件占用
     $normDir = ([System.IO.Path]::GetFullPath($suiteWidgetDir)).TrimEnd('\') + '\'
+    $previewDir = ([System.IO.Path]::GetFullPath((Join-Path $env:USERPROFILE ".antigravity-cat-widget\preview-runtime"))).TrimEnd('\') + '\'
+    $normRoot = ([System.IO.Path]::GetFullPath($root)).TrimEnd('\') + '\'
     $targetProcs = @(Get-CimInstance Win32_Process | Where-Object {
-        $_.ExecutablePath -and $_.ExecutablePath.StartsWith($normDir, [System.StringComparison]::OrdinalIgnoreCase)
+        $_.ExecutablePath -and (
+            $_.ExecutablePath.StartsWith($normDir, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $_.ExecutablePath.StartsWith($previewDir, [System.StringComparison]::OrdinalIgnoreCase) -or
+            $_.ExecutablePath.StartsWith($normRoot, [System.StringComparison]::OrdinalIgnoreCase)
+        ) -and $_.Name -in @("StarWidget.exe", "ForegroundHost.exe", "LaunchAntigravityWithWidget.exe")
     })
     foreach ($tp in $targetProcs) {
-        Write-Host "  结束目标目录进程：$($tp.Name) (PID $($tp.ProcessId))" -ForegroundColor DarkGray
+        Write-Host "  结束旧桌宠进程：$($tp.Name) (PID $($tp.ProcessId))" -ForegroundColor DarkGray
         try {
             Stop-Process -Id $tp.ProcessId -Force -ErrorAction Stop
         } catch {
@@ -60,14 +66,14 @@ if ($useSuite) {
         }
     }
     if ($targetProcs.Count -gt 0) {
-        Start-Sleep -Milliseconds 400
+        Start-Sleep -Milliseconds 500
     }
 
     # 覆盖前强制备份 Widget\resources\app -> app.bak-<yyyyMMdd-HHmmss>，备份失败立即中止
     $dstResources = Join-Path $suiteWidgetDir "resources"
     $dstApp = Join-Path $dstResources "app"
+    $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
     if (Test-Path -LiteralPath $dstApp) {
-        $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
         $backupDir = Join-Path $dstResources ("app.bak-" + $stamp)
         Write-Host "  备份原版 app 至：$backupDir" -ForegroundColor Cyan
         try {
@@ -100,11 +106,30 @@ if ($useSuite) {
         }
     }
 
+    $brandExe = Join-Path $appDir "Antigravity-Cat-Widget\src\native\BrandExe.exe"
+    $carrierDll = Join-Path $appDir "Antigravity-Cat-Widget\src\native\WidgetBrandCarrier.dll"
+    if ((Test-Path -LiteralPath $suiteExe) -and (Test-Path -LiteralPath $brandExe) -and (Test-Path -LiteralPath $carrierDll)) {
+        $curDesc = (Get-Item -LiteralPath $suiteExe).VersionInfo.FileDescription
+        if ($curDesc -ne "Star Neko Widget") {
+            Copy-Item -LiteralPath $suiteExe -Destination ($suiteExe + ".bak-" + $stamp) -Force
+        }
+        & $brandExe $suiteExe $carrierDll
+    }
+
     if (-not $NoStart) {
         Write-Host "[3/3] 正在静默启动 StarWidget..." -ForegroundColor Cyan
-        $null = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
-            CommandLine = "`"$suiteExe`" --background"
-            CurrentDirectory = $suiteWidgetDir
+        $suiteLauncher = Join-Path $suiteWidgetDir "LaunchAntigravityWithWidget.exe"
+        $hostAlive = @(Get-Process -Name "Antigravity" -ErrorAction SilentlyContinue).Count -gt 0
+        if ($hostAlive -and (Test-Path -LiteralPath $suiteLauncher)) {
+            $null = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+                CommandLine = "`"$suiteLauncher`" --attach"
+                CurrentDirectory = $suiteWidgetDir
+            }
+        } else {
+            $null = Invoke-CimMethod -ClassName Win32_Process -MethodName Create -Arguments @{
+                CommandLine = "`"$suiteExe`" --background"
+                CurrentDirectory = $suiteWidgetDir
+            }
         }
     }
     Write-Host "完成！已备份并替换原版至 $suiteWidgetDir" -ForegroundColor Green
@@ -185,6 +210,6 @@ if ($useSuite) {
 $cdpFile = Join-Path $env:APPDATA "Antigravity\DevToolsActivePort"
 if (-not (Test-Path -LiteralPath $cdpFile)) {
     Write-Host ""
-    Write-Host "提示：当前未检测到 Antigravity CDP 端口文件（DevToolsActivePort）。" -ForegroundColor Yellow
-    Write-Host "如需启用「实时 Gemini 额度读取」与「AI 工作态星晶光边」，请带参数 --remote-debugging-port=0 启动 Antigravity，或直接双击运行同目录编译好的 LaunchAntigravityWithWidget.exe。" -ForegroundColor Yellow
+    Write-Host "提示：当前未检测到 Antigravity 实时额度端口（DevToolsActivePort）。" -ForegroundColor Yellow
+    Write-Host "只需右键桌宠猫娘 → 点击「开启实时额度」，即可一键自动重启开启并设为默认伴随启动。" -ForegroundColor Yellow
 }

@@ -8,6 +8,7 @@ const DEFAULT_SETTINGS = {
   scale: 220,
   alwaysOnTop: true,
   reducedMotion: false,
+  compatMode: false,
   sound: false,
   volume: 0.35,
   soundSet: "bubble-pop",
@@ -77,7 +78,7 @@ class SettingsManager {
   sanitize(input) {
     const s = { ...DEFAULT_SETTINGS, ...input };
     const boolKeys = [
-      "alwaysOnTop", "reducedMotion", "sound", "bubbleOn", "turnCostOn",
+      "alwaysOnTop", "reducedMotion", "compatMode", "sound", "bubbleOn", "turnCostOn",
       "clickThrough", "snap", "hostWindowOnly", "easterEggs", "manualQuota",
       "autoBlink", "hideHoverTools", "pageQuota", "pageTalk", "pageToday",
       "pageLatest", "turnDoneSound", "waitingAlertOn", "waitingSound"

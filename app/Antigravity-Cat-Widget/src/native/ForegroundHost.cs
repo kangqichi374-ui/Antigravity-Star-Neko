@@ -1,8 +1,16 @@
 using System;
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using System.Runtime.InteropServices;
 using System.Text;
+
+[assembly: AssemblyTitle("Star Neko Tracker")]
+[assembly: AssemblyDescription("Star Neko Tracker")]
+[assembly: AssemblyProduct("Star Neko Widget")]
+[assembly: AssemblyCompany("Antigravity Star Neko")]
+[assembly: AssemblyVersion("1.2.0.0")]
+[assembly: AssemblyFileVersion("1.2.0.0")]
 
 internal static class ForegroundHost {
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
@@ -64,14 +72,14 @@ internal static class ForegroundHost {
     [DllImport("user32.dll")] private static extern uint MsgWaitForMultipleObjectsEx(uint count,IntPtr handles,uint milliseconds,uint mask,uint flags);
     [DllImport("winmm.dll")] private static extern uint timeBeginPeriod(uint period);
     [DllImport("winmm.dll")] private static extern uint timeEndPeriod(uint period);
-    private static bool moving,preciseTimer,hasMoved;
+    private static bool moving,preciseTimer,hasMoved,dirty;
     private static readonly Stopwatch motion=Stopwatch.StartNew();
-    private static void WaitForUpdate() {
+    private static void WaitForUpdate(uint idleMs=250u) {
         bool fast=moving||(hasMoved&&motion.ElapsedMilliseconds<120);
         if(fast&&!preciseTimer)preciseTimer=timeBeginPeriod(1)==0;
         if(!fast&&preciseTimer){timeEndPeriod(1);preciseTimer=false;}
-        // WinEvents wake immediately; short polling only bridges gaps during a drag.
-        MsgWaitForMultipleObjectsEx(0,IntPtr.Zero,fast?2u:32u,0x04FF,4);
+        // WinEvents wake immediately; longer idle wait avoids 31Hz background polling when windows are stationary.
+        MsgWaitForMultipleObjectsEx(0,IntPtr.Zero,fast?2u:idleMs,0x04FF,4);
     }
     private static bool Available(IntPtr w) {
         int cloaked;
@@ -79,10 +87,19 @@ internal static class ForegroundHost {
             !(DwmGetWindowAttribute(w,14,out cloaked,4)==0&&cloaked!=0);
     }
     private static bool IsTopmost(IntPtr w) {return (GetWindowLongPtr(w,-20).ToInt64()&8)!=0;}
+    private static bool IsSiblingWidget(IntPtr w) {
+        if(w==IntPtr.Zero||!IsWindow(w))return false;
+        try {
+            uint pid;GetWindowThreadProcessId(w,out pid);
+            using(var p=Process.GetProcessById((int)pid))
+                return String.Equals(p.ProcessName,"StarWidget",StringComparison.OrdinalIgnoreCase);
+        } catch {return false;}
+    }
     private static bool IsHostOrWidgetForeground(IntPtr foreground,IntPtr widget,IntPtr host) {
         if(foreground==IntPtr.Zero)return false;
         if(foreground==widget)return true;
         if(host!=IntPtr.Zero&&(foreground==host||GetAncestor(foreground,3)==host))return true;
+        if(IsSiblingWidget(foreground))return true;
         return false;
     }
     private static void StackWithHost(IntPtr widget,IntPtr host,IntPtr foreground) {
@@ -97,6 +114,15 @@ internal static class ForegroundHost {
             return;
         }
         if(IsTopmost(widget))SetWindowPos(widget,new IntPtr(-2),0,0,0,0,0x0213);
+        for(int step=0;step<4;step++){
+            IntPtr check=(step==0)?GetWindow(host,3):IntPtr.Zero;
+            if(step==0&&check==widget)return;
+            if(step==0&&IsSiblingWidget(check)){
+                IntPtr check2=GetWindow(check,3);
+                if(check2==widget)return;
+            }
+            break;
+        }
         IntPtr above=GetWindow(host,3);
         if(above==widget)return;
         // HWND_TOP inserts only into the normal band after any topmost windows.
@@ -120,10 +146,10 @@ internal static class ForegroundHost {
             }
         };
         WinEvent changed=delegate(IntPtr h,uint ev,IntPtr w,int obj,int child,uint thread,uint time){
-            if(w==trackedHost&&ev==10)moving=true;
-            if(w==trackedHost&&ev==11){moving=false;hasMoved=true;motion.Restart();followHost();}
-            if(w==trackedHost&&obj==0&&ev==0x800B)followHost();
-            if(ev==3||ev==0x8004)StackWithHost(widget,trackedHost,GetForegroundWindow());
+            if(w==trackedHost&&ev==10){moving=true;dirty=true;}
+            if(w==trackedHost&&ev==11){moving=false;hasMoved=true;dirty=true;motion.Restart();followHost();}
+            if(w==trackedHost&&obj==0&&ev==0x800B){dirty=true;followHost();}
+            if(ev==3||ev==0x8004){dirty=true;StackWithHost(widget,trackedHost,GetForegroundWindow());}
         };
         IntPtr locationHook=SetWinEventHook(0x800B,0x800B,IntPtr.Zero,changed,0,0,0);
         IntPtr foregroundHook=SetWinEventHook(3,3,IntPtr.Zero,changed,0,0,0);
@@ -135,7 +161,8 @@ internal static class ForegroundHost {
             while(!stopping&&!parent.HasExited&&(widget==IntPtr.Zero||IsWindow(widget))){
                 Message queued;while(PeekMessage(out queued,IntPtr.Zero,0,0,1)){}
                 followHost();
-                if(previous!=null&&metadata.ElapsedMilliseconds<32){WaitForUpdate();continue;}
+                if(!dirty&&previous!=null&&metadata.ElapsedMilliseconds<32){WaitForUpdate(32u);continue;}
+                dirty=false;
                 metadata.Restart();
                 IntPtr foreground=GetForegroundWindow();uint pid;GetWindowThreadProcessId(foreground,out pid);
                 // Process/class discovery is not on the per-movement path.

@@ -1,7 +1,7 @@
 const path = require("node:path");
 const os = require("node:os");
 const { EventEmitter } = require("node:events");
-const { discover, Cdp } = require("../../../shared/host.cjs");
+const { discover, Cdp, sharedHost } = require("../../../shared/host.cjs");
 const { readJson, writeJson } = require("../../../shared/storage.cjs");
 
 // Read only quota fields from the native IDE cache or Desktop Models view cache.
@@ -51,8 +51,47 @@ function readHostQuota() {
   return result;
 }
 
-// Uses only the logged-in host's quota service; falls back to in-memory cache if network call fails.
+// Uses cached cloudCodeService reference first to avoid full-DOM Fiber traversal every poll.
 async function queryHostQuota(readCache) {
+  const parseResponse = response => {
+    const group = response?.response?.groups?.find(g => g?.displayName === "Gemini Models");
+    if (!group) return null;
+    const result = { cacheAvailable: true, fiveHour: null, weekly: null, fetchedAt: Date.now() };
+    for (const bucket of group.buckets || []) {
+      const key =
+        bucket.bucketId === "gemini-5h"
+          ? "fiveHour"
+          : bucket.bucketId === "gemini-weekly"
+          ? "weekly"
+          : null;
+      const value = bucket.remaining?.case === "remainingFraction" ? bucket.remaining.value : null;
+      if (
+        key &&
+        !bucket.disabled &&
+        typeof value === "number" &&
+        Number.isFinite(value) &&
+        value >= 0 &&
+        value <= 1
+      ) {
+        result[key] = value * 100;
+      }
+    }
+    return result;
+  };
+
+  if (typeof window !== "undefined" && window.__agyStarQuotaSvc) {
+    const cachedSvc = typeof window.__agyStarQuotaSvc.deref === "function"
+      ? window.__agyStarQuotaSvc.deref()
+      : window.__agyStarQuotaSvc;
+    if (typeof cachedSvc?.retrieveUserQuotaSummary === "function") {
+      try {
+        const parsed = parseResponse(await cachedSvc.retrieveUserQuotaSummary(undefined, false));
+        if (parsed) return parsed;
+      } catch {}
+    }
+    window.__agyStarQuotaSvc = null;
+  }
+
   const seen = new Set();
   if (typeof document !== "undefined") {
     for (const el of document.querySelectorAll("body *")) {
@@ -62,31 +101,11 @@ async function queryHostQuota(readCache) {
         const service = fiber.memoizedProps?.value?.core?.cloudCodeService;
         if (typeof service?.retrieveUserQuotaSummary !== "function") continue;
         try {
-          const response = await service.retrieveUserQuotaSummary(undefined, false);
-          const group = response?.response?.groups?.find(g => g?.displayName === "Gemini Models");
-          if (group) {
-            const result = { cacheAvailable: true, fiveHour: null, weekly: null, fetchedAt: Date.now() };
-            for (const bucket of group.buckets || []) {
-              const key =
-                bucket.bucketId === "gemini-5h"
-                  ? "fiveHour"
-                  : bucket.bucketId === "gemini-weekly"
-                  ? "weekly"
-                  : null;
-              const value = bucket.remaining?.case === "remainingFraction" ? bucket.remaining.value : null;
-              if (
-                key &&
-                !bucket.disabled &&
-                typeof value === "number" &&
-                Number.isFinite(value) &&
-                value >= 0 &&
-                value <= 1
-              ) {
-                result[key] = value * 100;
-              }
-            }
-            return result;
+          if (typeof window !== "undefined") {
+            window.__agyStarQuotaSvc = typeof WeakRef === "function" ? new WeakRef(service) : service;
           }
+          const parsed = parseResponse(await service.retrieveUserQuotaSummary(undefined, false));
+          if (parsed) return parsed;
         } catch {}
         break;
       }
@@ -95,9 +114,14 @@ async function queryHostQuota(readCache) {
   return readCache();
 }
 
+const FAST_QUOTA_EXPR = "(" + readHostQuota.toString() + ")()";
+const QUERY_QUOTA_EXPR = "(" + queryHostQuota.toString() + ")(" + readHostQuota.toString() + ")";
+
 class HostQuotaAdapter extends EventEmitter {
   constructor(options = {}) {
     super();
+    this.useShared = !options.discover && !options.Client;
+    this.shared = options.shared || sharedHost;
     this.discover = options.discover || discover;
     this.Client = options.Client || Cdp;
     this.now = options.now || Date.now;
@@ -112,9 +136,11 @@ class HostQuotaAdapter extends EventEmitter {
       weekly: typeof saved?.weekly === "number" ? saved.weekly : null,
       fetchedAt: saved?.fetchedAt || null,
       observedAt: saved?.observedAt || null,
-      cached: false,
+      cached: Boolean(hasSaved),
       stale: false,
-      online: Boolean(hasSaved)
+      online: Boolean(hasSaved),
+      cdpConnected: false,
+      cdpMissing: false
     };
     this.sampleAt = saved?.observedAt || null;
     this.active = false;
@@ -133,6 +159,11 @@ class HostQuotaAdapter extends EventEmitter {
     this.tick();
   }
 
+  async _evalHost(expr, ownClient) {
+    if (this.useShared) return this.shared.evaluate(expr);
+    return ownClient.evaluate(expr);
+  }
+
   async tick() {
     if (this.busy || !this.active) {
       if (this.busy && this.active) this.pendingRefresh = true;
@@ -142,24 +173,35 @@ class HostQuotaAdapter extends EventEmitter {
     this.pendingRefresh = false;
     this.clearTimer(this.timer);
     const generation = this.generation;
-    let c, ready = false;
+    let c, ready = false, hostConnected = false;
     const current = () => this.active && generation === this.generation;
 
     try {
-      const host = await this.discover();
-      if (!current()) return;
-      if (!host) {
-        this.snapshot = { ...this.snapshot, status: "waiting-host" };
-        throw new Error("offline");
+      if (this.useShared) {
+        const sharedClient = await this.shared.getClient();
+        if (!current()) return;
+        if (!sharedClient) {
+          this.snapshot = { ...this.snapshot, status: this.snapshot.fiveHour !== null || this.snapshot.weekly !== null ? "ready" : "waiting-host", cdpConnected: false, cdpMissing: true };
+          throw new Error("offline");
+        }
+        hostConnected = true;
+        this.hostIdentity = this.shared.wsUrl;
+      } else {
+        const host = await this.discover();
+        if (!current()) return;
+        if (!host) {
+          this.snapshot = { ...this.snapshot, status: this.snapshot.fiveHour !== null || this.snapshot.weekly !== null ? "ready" : "waiting-host", cdpConnected: false, cdpMissing: true };
+          throw new Error("offline");
+        }
+        hostConnected = true;
+        this.hostIdentity = host.target.webSocketDebuggerUrl;
+        c = new this.Client(host.target.webSocketDebuggerUrl);
+        this.client = c;
       }
-      this.hostIdentity = host.target.webSocketDebuggerUrl;
-      c = new this.Client(host.target.webSocketDebuggerUrl);
-      this.client = c;
 
-      // Fast path: if we don't have numbers yet, read in-memory cache immediately before awaiting remote summary
       if (this.snapshot.fiveHour === null && this.snapshot.weekly === null) {
         try {
-          const fastSample = await c.evaluate("(" + readHostQuota.toString() + ")()");
+          const fastSample = await this._evalHost(FAST_QUOTA_EXPR, c);
           if (current() && fastSample?.cacheAvailable) {
             const fastReady = [fastSample.fiveHour, fastSample.weekly].some(
               v => typeof v === "number" && Number.isFinite(v) && v >= 0 && v <= 100
@@ -174,7 +216,9 @@ class HostQuotaAdapter extends EventEmitter {
                 stale: false,
                 observedAt: this.sampleAt,
                 fetchedAt: fastSample.fetchedAt || this.sampleAt,
-                online: true
+                online: true,
+                cdpConnected: true,
+                cdpMissing: false
               };
               this.emit("change", this.snapshot);
             }
@@ -182,13 +226,13 @@ class HostQuotaAdapter extends EventEmitter {
         } catch {}
       }
 
-      const sample = await c.evaluate("(" + queryHostQuota.toString() + ")(" + readHostQuota.toString() + ")");
+      const sample = await this._evalHost(QUERY_QUOTA_EXPR, c);
       if (!current()) return;
       if (!sample?.cacheAvailable) {
         if (this.sampleAt !== null && this.sampleAt !== undefined) {
-          this.snapshot = { ...this.snapshot, online: true, cached: false, stale: false };
+          this.snapshot = { ...this.snapshot, online: true, cached: false, stale: false, cdpConnected: true, cdpMissing: false };
         } else {
-          this.snapshot = { ...this.snapshot, online: true, status: "unsupported-or-initializing" };
+          this.snapshot = { ...this.snapshot, online: true, status: "unsupported-or-initializing", cdpConnected: true, cdpMissing: false };
         }
         return;
       }
@@ -213,7 +257,9 @@ class HostQuotaAdapter extends EventEmitter {
           stale: false,
           observedAt: this.sampleAt,
           fetchedAt: typeof sample.fetchedAt === "number" ? sample.fetchedAt : this.sampleAt,
-          online: true
+          online: true,
+          cdpConnected: true,
+          cdpMissing: false
         };
         try {
           writeJson(this.cachePath, {
@@ -226,12 +272,13 @@ class HostQuotaAdapter extends EventEmitter {
       }
     } catch {
       if (current()) {
-        // Keep last valid numbers clean without showing stale warning text
         this.snapshot = {
           ...this.snapshot,
           status: this.snapshot.fiveHour !== null || this.snapshot.weekly !== null ? "ready" : "query-failed",
-          cached: false,
-          stale: false
+          cached: Boolean(this.snapshot.fiveHour !== null || this.snapshot.weekly !== null),
+          stale: false,
+          cdpConnected: hostConnected,
+          cdpMissing: !hostConnected
         };
       }
     } finally {

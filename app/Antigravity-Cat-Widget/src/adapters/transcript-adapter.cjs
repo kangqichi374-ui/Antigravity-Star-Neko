@@ -3,6 +3,9 @@ const path = require("node:path");
 const os = require("node:os");
 const { EventEmitter } = require("node:events");
 
+const TAIL_WINDOW_BYTES = 768 * 1024;
+const DIR_RESCAN_MS = 15000;
+
 class TranscriptAdapter extends EventEmitter {
   constructor(options = {}) {
     super();
@@ -13,44 +16,96 @@ class TranscriptAdapter extends EventEmitter {
     this.notifiedTurns = new Set();
     this.initialized = false;
     this.timer = null;
+    this.dirWatcher = null;
+    this.dirDirty = true;
+    this.lastDirScanAt = 0;
+    this.cachedFiles = [];
+    this.lastStatusSig = "";
     this.pollMs = options.pollMs || 400;
   }
 
-  files() {
-    if (this.filePath) return fs.existsSync(this.filePath) ? [this.filePath] : [];
+  _startDirWatch() {
+    if (this.filePath || this.dirWatcher) return;
     const brain = path.join(this.appDataDir, "brain");
-    let files = [];
+    try {
+      if (fs.existsSync(brain)) {
+        this.dirWatcher = fs.watch(brain, { persistent: false }, () => {
+          this.dirDirty = true;
+        });
+        this.dirWatcher.on("error", () => {
+          try { this.dirWatcher?.close(); } catch {}
+          this.dirWatcher = null;
+        });
+      }
+    } catch {}
+  }
+
+  files(forceFullDirScan = false) {
+    if (this.filePath) return fs.existsSync(this.filePath) ? [this.filePath] : [];
+    const now = Date.now();
+    if (!forceFullDirScan && !this.dirDirty && this.cachedFiles.length > 0 && now - this.lastDirScanAt < DIR_RESCAN_MS) {
+      return this.cachedFiles;
+    }
+    const brain = path.join(this.appDataDir, "brain");
+    const found = [];
     try {
       for (const d of fs.readdirSync(brain, { withFileTypes: true })) {
         if (!d.isDirectory()) continue;
         const compact = path.join(brain, d.name, ".system_generated/logs/transcript.jsonl");
         const full = path.join(brain, d.name, ".system_generated/logs/transcript_full.jsonl");
-        const p = fs.existsSync(compact) ? compact : full;
+        let p = compact;
+        let st = null;
         try {
-          files.push({ p, mtime: fs.statSync(p).mtimeMs });
-        } catch {}
+          st = fs.statSync(compact);
+        } catch {
+          p = full;
+          try { st = fs.statSync(full); } catch {}
+        }
+        if (st && st.isFile()) {
+          found.push({ p, mtime: st.mtimeMs });
+        }
       }
     } catch {}
-    return files.sort((a, b) => b.mtime - a.mtime).slice(0, 64).map(f => f.p);
+    this.cachedFiles = found.sort((a, b) => b.mtime - a.mtime).slice(0, 64).map(f => f.p);
+    this.dirDirty = false;
+    this.lastDirScanAt = now;
+    return this.cachedFiles;
   }
 
   resolveTranscriptPath() {
     return this.files()[0] || null;
   }
 
-  readLines(file, stat, fullScan) {
-    const maxTail = fullScan ? stat.size : Math.min(stat.size, 768 * 1024);
-    const start = Math.max(0, stat.size - maxTail);
+  readChunk(file, startOffset, endOffset, dropPartialLeading) {
+    const len = endOffset - startOffset;
+    if (len <= 0) return { lines: [], nextOffset: endOffset };
     const fd = fs.openSync(file, "r");
     try {
-      const buf = Buffer.alloc(stat.size - start);
-      const n = fs.readSync(fd, buf, 0, buf.length, start);
-      const text = buf.subarray(0, n).toString("utf8");
+      const buf = Buffer.allocUnsafe(len);
+      const n = fs.readSync(fd, buf, 0, len, startOffset);
+      if (n <= 0) return { lines: [], nextOffset: startOffset };
+      // Only consume up to the last complete newline if reading live incremental tail so partial writes wait for next tick
+      const lastNl = buf.subarray(0, n).lastIndexOf(10); // '\n'
+      let usable = n;
+      let nextOffset = startOffset + n;
+      if (lastNl >= 0 && lastNl < n - 1) {
+        // Check whether trailing bytes are already valid JSON (final line without trailing newline)
+        const trailing = buf.subarray(lastNl + 1, n).toString("utf8").trim();
+        let trailingValid = false;
+        if (trailing.endsWith("}")) {
+          try { JSON.parse(trailing); trailingValid = true; } catch {}
+        }
+        if (!trailingValid) {
+          usable = lastNl + 1;
+          nextOffset = startOffset + usable;
+        }
+      }
+      const text = buf.subarray(0, usable).toString("utf8");
       const rawLines = text.split("\n");
-      if (start > 0 && rawLines.length > 1) {
+      if (dropPartialLeading && startOffset > 0 && rawLines.length > 1) {
         rawLines.shift();
       }
-      return rawLines;
+      return { lines: rawLines, nextOffset };
     } finally {
       fs.closeSync(fd);
     }
@@ -58,19 +113,25 @@ class TranscriptAdapter extends EventEmitter {
 
   scan() {
     const isFirstScan = !this.initialized;
-    const files = this.files();
-    let newest = 0, readable = 0;
-    const active = new Set(files);
-    for (const file of this.fileStates.keys()) {
-      if (!active.has(file)) this.fileStates.delete(file);
+    const didFullDirScan = isFirstScan || this.dirDirty || (Date.now() - this.lastDirScanAt >= DIR_RESCAN_MS);
+    const files = this.files(didFullDirScan);
+    let newest = 0, readable = files.length;
+
+    if (didFullDirScan) {
+      const active = new Set(files);
+      for (const file of this.fileStates.keys()) {
+        if (!active.has(file)) this.fileStates.delete(file);
+      }
     }
 
-    for (let idx = 0; idx < files.length; idx++) {
+    // On normal 400ms fast ticks, only stat the top 3 hottest conversation files instead of all 64
+    const checkLimit = didFullDirScan ? files.length : Math.min(files.length, 3);
+
+    for (let idx = 0; idx < checkLimit; idx++) {
       const file = files[idx];
       try {
         const stat = fs.statSync(file);
         if (!stat.isFile()) continue;
-        readable++;
         newest = Math.max(newest, stat.mtimeMs);
 
         let state = this.fileStates.get(file);
@@ -79,21 +140,50 @@ class TranscriptAdapter extends EventEmitter {
 
         const isNewFile = !state;
         if (!state) {
-          state = { mtimeMs: stat.mtimeMs, size: stat.size, seen: new Map() };
+          state = {
+            mtimeMs: stat.mtimeMs,
+            size: stat.size,
+            offset: 0,
+            turnSteps: new Map(),
+            lastPlanner: null,
+            sawUserInput: false,
+            seen: new Map()
+          };
           this.fileStates.set(file, state);
         } else {
           state.mtimeMs = stat.mtimeMs;
           state.size = stat.size;
         }
 
-        // Only parse full history on initial scan for recent files, or tail for live updates
-        if (isFirstScan && idx >= 16) continue;
-        const lines = this.readLines(file, stat, isNewFile);
-        const sessionId = path.basename(path.resolve(file, "../../.."));
+        if (isFirstScan && idx >= 16) {
+          state.offset = stat.size;
+          continue;
+        }
 
-        let currentTurnSteps = new Map();
-        let lastPlanner = null;
-        let sawUserInput = false;
+        // Incremental read when file strictly grew within reasonable delta; fallback to tail rescan on rewrite/shrink
+        const canReadDelta =
+          !isNewFile &&
+          state.offset > 0 &&
+          stat.size > state.offset &&
+          (stat.size - state.offset) <= TAIL_WINDOW_BYTES;
+
+        let lines;
+        if (canReadDelta) {
+          const chunk = this.readChunk(file, state.offset, stat.size, false);
+          lines = chunk.lines;
+          state.offset = chunk.nextOffset;
+        } else {
+          const maxTail = isNewFile ? stat.size : Math.min(stat.size, TAIL_WINDOW_BYTES);
+          const start = Math.max(0, stat.size - maxTail);
+          state.turnSteps = new Map();
+          state.lastPlanner = null;
+          state.sawUserInput = false;
+          const chunk = this.readChunk(file, start, stat.size, start > 0);
+          lines = chunk.lines;
+          state.offset = chunk.nextOffset;
+        }
+
+        const sessionId = path.basename(path.resolve(file, "../../.."));
 
         for (const rawLine of lines) {
           const trimmed = rawLine.trim();
@@ -107,9 +197,9 @@ class TranscriptAdapter extends EventEmitter {
           if (!Number.isSafeInteger(s.step_index)) continue;
 
           if (s.type === "USER_INPUT") {
-            currentTurnSteps = new Map();
-            lastPlanner = null;
-            sawUserInput = true;
+            state.turnSteps = new Map();
+            state.lastPlanner = null;
+            state.sawUserInput = true;
             continue;
           }
 
@@ -137,8 +227,8 @@ class TranscriptAdapter extends EventEmitter {
             historical: isFirstScan
           };
 
-          currentTurnSteps.set(s.step_index, stepData);
-          lastPlanner = stepData;
+          state.turnSteps.set(s.step_index, stepData);
+          state.lastPlanner = stepData;
 
           const signature = [s.status, s.input_tokens, s.cache_read_tokens, s.output_tokens, toolCalls.length].join("|");
           if (state.seen.get(s.step_index) === signature) continue;
@@ -163,8 +253,9 @@ class TranscriptAdapter extends EventEmitter {
           }
         }
 
+        const lastPlanner = state.lastPlanner;
         const isRecentFile = (Date.now() - stat.mtimeMs) < 90000;
-        if (!lastPlanner && sawUserInput && !isFirstScan && isRecentFile) {
+        if (!lastPlanner && state.sawUserInput && !isFirstScan && isRecentFile) {
           this.emit("turnRunning", { sessionId, stepIndex: 0, historical: false });
         }
 
@@ -180,7 +271,7 @@ class TranscriptAdapter extends EventEmitter {
           } else if (isTurnFinished && !this.notifiedTurns.has(turnKey)) {
             this.notifiedTurns.add(turnKey);
             let sumIn = 0, sumOut = 0, maxCache = 0, sumCache = 0, count = 0;
-            for (const st of currentTurnSteps.values()) {
+            for (const st of state.turnSteps.values()) {
               if (typeof st.input_tokens === "number") sumIn += st.input_tokens;
               if (typeof st.output_tokens === "number") sumOut += st.output_tokens;
               if (typeof st.cache_read_tokens === "number") {
@@ -206,21 +297,33 @@ class TranscriptAdapter extends EventEmitter {
             this.emit("turnRunning", { sessionId, stepIndex: lastPlanner.step_index, historical: false });
           }
         }
+
+        // Keep hottest modified file at index 0 of cachedFiles so fast 3-file ticks always track active session
+        if (idx > 0 && this.cachedFiles[idx] === file) {
+          this.cachedFiles.splice(idx, 1);
+          this.cachedFiles.unshift(file);
+        }
       } catch {}
     }
 
     this.initialized = true;
-    this.emit("status", {
-      online: readable > 0,
-      source: "本机 Antigravity 日志",
-      coverage: "最近 64 份会话 · 模型步骤",
-      files: readable,
-      lastUpdated: newest ? new Date(newest).toISOString() : null
-    });
+    const online = readable > 0;
+    const statusSig = `${online}|${readable}|${newest}`;
+    if (statusSig !== this.lastStatusSig) {
+      this.lastStatusSig = statusSig;
+      this.emit("status", {
+        online,
+        source: "本机 Antigravity 日志",
+        coverage: "最近 64 份会话 · 模型步骤",
+        files: readable,
+        lastUpdated: newest ? new Date(newest).toISOString() : null
+      });
+    }
   }
 
   start() {
     if (this.timer) return;
+    this._startDirWatch();
     this.scan();
     this.timer = setInterval(() => this.scan(), this.pollMs);
   }
@@ -228,6 +331,10 @@ class TranscriptAdapter extends EventEmitter {
   stop() {
     clearInterval(this.timer);
     this.timer = null;
+    if (this.dirWatcher) {
+      try { this.dirWatcher.close(); } catch {}
+      this.dirWatcher = null;
+    }
   }
 }
 

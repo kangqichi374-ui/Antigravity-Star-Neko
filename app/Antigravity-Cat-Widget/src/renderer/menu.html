@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'none'">
+  <title>星语猫娘菜单</title>
+  <link rel="stylesheet" href="menu.css">
+</head>
+<body>
+  <div class="ctx-wrap" id="wrap">
+    <nav class="ctx-card" id="card" aria-label="星语猫娘快捷菜单">
+      <div class="ctx-header">
+        <span class="ctx-brand"><span class="ctx-star">✦</span> 星语猫娘 · 桌宠</span>
+        <span class="ctx-eye-dots" aria-hidden="true"><i class="dot-gold"></i><i class="dot-pink"></i></span>
+      </div>
+
+      <button class="ctx-item" data-cmd="settings" type="button">
+        <span class="ctx-item__label">定制与设置面板…</span>
+      </button>
+      <button class="ctx-item ctx-item--accent" data-cmd="enable-live-quota" type="button">
+        <span class="ctx-item__label">开启实时额度</span>
+        <span class="ctx-badge" id="cdp-badge">检测中</span>
+      </button>
+      <button class="ctx-item" data-cmd="pet" type="button">
+        <span class="ctx-item__label">摸摸头</span>
+        <span class="ctx-hint">♡</span>
+      </button>
+
+      <div class="ctx-sep"></div>
+
+      <div class="ctx-inline-row">
+        <span class="ctx-row-label">气泡配色</span>
+        <div class="ctx-swatches" role="radiogroup" aria-label="气泡主题配色">
+          <button class="swatch swatch--crystal" data-theme="crystal" title="星晶蓝紫（默认）" type="button" aria-label="星晶蓝紫"></button>
+          <button class="swatch swatch--sakura" data-theme="sakura" title="樱粉浅暖" type="button" aria-label="樱粉浅暖"></button>
+          <button class="swatch swatch--ocean" data-theme="ocean" title="经典蓝白" type="button" aria-label="经典蓝白"></button>
+          <button class="swatch swatch--night" data-theme="night" title="星空暗夜" type="button" aria-label="星空暗夜"></button>
+        </div>
+      </div>
+
+      <div class="ctx-inline-row">
+        <span class="ctx-row-label">角色朝向</span>
+        <div class="ctx-seg" role="radiogroup" aria-label="角色朝向">
+          <button class="seg-btn" data-facing="auto" type="button">自动</button>
+          <button class="seg-btn" data-facing="left" type="button">朝左</button>
+          <button class="seg-btn" data-facing="right" type="button">朝右</button>
+        </div>
+      </div>
+
+      <button class="ctx-item ctx-check" data-toggle="bubbleOn" type="button">
+        <span class="ctx-box" id="chk-bubbleOn"></span>
+        <span class="ctx-item__label">显示气泡</span>
+      </button>
+      <button class="ctx-item ctx-check" data-toggle="hideHoverTools" type="button">
+        <span class="ctx-box" id="chk-hideHoverTools"></span>
+        <span class="ctx-item__label">隐藏右侧悬浮按钮</span>
+      </button>
+      <button class="ctx-item ctx-check" data-toggle="compatMode" type="button">
+        <span class="ctx-box" id="chk-compatMode"></span>
+        <span class="ctx-item__label">兼容模式（防小飞机叠加）</span>
+      </button>
+      <button class="ctx-item ctx-check" data-toggle="clickThrough" type="button">
+        <span class="ctx-box" id="chk-clickThrough"></span>
+        <span class="ctx-item__label">鼠标穿透</span>
+        <span class="ctx-shortcut">Ctrl+Alt+Shift+G</span>
+      </button>
+
+      <div class="ctx-sep"></div>
+
+      <div class="ctx-pills-row">
+        <button class="pill-btn" data-cmd="dock-left" type="button">停靠左下</button>
+        <button class="pill-btn" data-cmd="dock-right" type="button">停靠右下</button>
+        <button class="pill-btn" data-cmd="reset" type="button">重置位置</button>
+      </div>
+
+      <button class="ctx-item" data-cmd="relaunch-widget" type="button">
+        <span class="ctx-item__label">重启挂件</span>
+      </button>
+      <button class="ctx-item ctx-item--danger" data-cmd="quit" type="button">
+        <span class="ctx-item__label">退出星语猫娘</span>
+      </button>
+    </nav>
+  </div>
+  <script src="menu.cjs"></script>
+</body>
+</html>

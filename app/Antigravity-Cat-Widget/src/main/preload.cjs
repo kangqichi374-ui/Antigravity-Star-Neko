@@ -4,6 +4,7 @@ contextBridge.exposeInMainWorld("widgetApi", {
   save: v => ipcRenderer.invoke("widget:settings", v),
   command: v => ipcRenderer.send("widget:command", v),
   pointer: v => ipcRenderer.invoke("widget:pointer", v),
+  dragMove: p => ipcRenderer.send("widget:drag-move", p),
   hit: v => ipcRenderer.send("widget:hit", v),
   audio: v => ipcRenderer.invoke("widget:audio", v),
   importAudio: () => ipcRenderer.invoke("widget:import-audio"),
@@ -31,5 +32,15 @@ contextBridge.exposeInMainWorld("widgetApi", {
     const h = (_e, data) => callback(data);
     ipcRenderer.on("widget:side-button", h);
     return () => ipcRenderer.removeListener("widget:side-button", h);
+  },
+  onVisibility: callback => {
+    const h = (_e, visible) => callback(visible);
+    ipcRenderer.on("widget:visibility", h);
+    return () => ipcRenderer.removeListener("widget:visibility", h);
+  },
+  onOpenQuota: callback => {
+    const h = () => callback();
+    ipcRenderer.on("widget:open-quota", h);
+    return () => ipcRenderer.removeListener("widget:open-quota", h);
   }
 });
