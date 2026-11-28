@@ -1,0 +1,150 @@
+/* Theme tokens: crystal (default), sakura, ocean, night */
+.agy-art {
+  --card-border-width: 3px;
+  --card-border-color: #9e7be8;
+  --card-bg: radial-gradient(circle at 18% 25%, #f9e6ff 0, transparent 34%),
+    radial-gradient(circle at 85% 70%, #e2ecff 0, transparent 38%),
+    linear-gradient(135deg, #fffffffa, #f5effffa 58%, #ece7fffa);
+  --card-color: #5b3b94;
+  --card-shadow: inset 0 0 16px #fff, 0 4px 14px rgba(72, 49, 121, 0.18);
+
+  --dot-border-color: #9e7be8;
+  --dot-bg: #f6f0ff;
+  --dot-shadow: 0 2px 6px rgba(114, 81, 181, 0.2);
+
+  --title-color: #6b43a8;
+  --title-shadow: 0 0 10px #e4ccff;
+  --title-ornament-before: "✦ ";
+  --title-ornament-after: " ✧";
+  --title-ornament-color: #b991e2;
+
+  --value-color: #7b45c2;
+  --value-bg: linear-gradient(110deg, #5666e6, #9d44c2, #d96ec0);
+  --value-fill-color: transparent;
+
+  --track-bg: #dfd1f2;
+  --track-shadow: inset 0 1px 3px #7952a826;
+  --fill-bg: linear-gradient(90deg, #7475ff, #b178ff, #ee9ee2);
+  --fill-shadow: 0 0 8px #b381ff88;
+
+  --quota-label-color: #7753aa;
+  --quota-strong-color: #8851cd;
+  --meta-color: #7c629c;
+
+  --tool-border: rgba(158, 123, 232, 0.65);
+  --tool-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(243, 236, 255, 0.92));
+  --tool-color: #5b4699;
+  --tool-shadow: 0 4px 12px rgba(88, 62, 148, 0.16), inset 0 1px 0 #ffffff;
+  --tool-hover-border: #8f68e5;
+  --tool-hover-bg: linear-gradient(145deg, #ffffff, #efe6ff);
+  --tool-hover-color: #473080;
+  --tool-hover-shadow: 0 6px 15px rgba(108, 68, 185, 0.25), inset 0 1px 0 #ffffff;
+  --tool-active-shadow: 0 2px 6px rgba(88, 62, 148, 0.16);
+}
+
+.agy-art[data-theme="sakura"] {
+  --card-border-color: #ec8eb8;
+  --card-bg: radial-gradient(circle at 20% 25%, #ffe9f4 0, transparent 36%),
+    linear-gradient(135deg, #fffdfefa, #fef0f6fa 60%, #fde7f1fa);
+  --card-color: #9c3d68;
+  --card-shadow: inset 0 0 16px #fff, 0 4px 14px rgba(122, 40, 79, 0.16);
+
+  --dot-border-color: #ec8eb8;
+  --dot-bg: #fdeef5;
+
+  --title-color: #b54476;
+  --title-shadow: 0 0 10px #ffd2e6;
+  --title-ornament-color: #ea8ab6;
+
+  --value-bg: linear-gradient(110deg, #dc5284, #d14798, #eb7b6f);
+
+  --track-bg: #f3d0e0;
+  --fill-bg: linear-gradient(90deg, #f278a1, #f79bb8, #f9b895);
+  --fill-shadow: 0 0 8px #f48fb188;
+
+  --quota-label-color: #a84d74;
+  --quota-strong-color: #a84d74;
+  --meta-color: #a84d74;
+
+  --tool-border: rgba(238, 155, 185, 0.72);
+  --tool-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.96), rgba(255, 238, 244, 0.92));
+  --tool-color: #9b486b;
+  --tool-shadow: 0 4px 12px rgba(168, 72, 110, 0.16), inset 0 1px 0 #ffffff;
+  --tool-hover-border: #e06d9f;
+  --tool-hover-bg: linear-gradient(145deg, #ffffff, #ffe3ee);
+  --tool-hover-color: #822f54;
+  --tool-hover-shadow: 0 6px 15px rgba(186, 76, 122, 0.24), inset 0 1px 0 #ffffff;
+  --tool-active-shadow: 0 2px 6px rgba(168, 72, 110, 0.16);
+}
+
+.agy-art[data-theme="ocean"] {
+  --card-border-width: 3.5px;
+  --card-border-color: #253a7b;
+  --card-bg: #ffffff;
+  --card-color: #536ba9;
+  --card-shadow: 0 4px 14px rgba(32, 49, 112, 0.16);
+
+  --dot-border-color: #253a7b;
+  --dot-bg: #ffffff;
+  --dot-shadow: none;
+
+  --title-color: #4a62a3;
+  --title-shadow: none;
+  --title-ornament-before: "";
+  --title-ornament-after: "";
+
+  --value-color: #35509c;
+  --value-bg: none;
+  --value-fill-color: #35509c;
+
+  --track-bg: #dfe7f7;
+  --track-shadow: none;
+  --fill-bg: linear-gradient(90deg, #3b63b8, #588ae2);
+  --fill-shadow: none;
+
+  --quota-label-color: #536ba9;
+  --quota-strong-color: #536ba9;
+  --meta-color: #536ba9;
+
+  --tool-border: rgba(43, 47, 85, 0.65);
+  --tool-bg: linear-gradient(145deg, rgba(255, 255, 255, 0.97), rgba(235, 241, 255, 0.93));
+  --tool-color: #2b2f55;
+  --tool-shadow: 0 4px 12px rgba(43, 47, 85, 0.16), inset 0 1px 0 #ffffff;
+  --tool-hover-border: #35509c;
+  --tool-hover-bg: linear-gradient(145deg, #ffffff, #e2ebff);
+  --tool-hover-color: #1f2d63;
+  --tool-hover-shadow: 0 6px 15px rgba(37, 58, 123, 0.22), inset 0 1px 0 #ffffff;
+  --tool-active-shadow: 0 2px 6px rgba(43, 47, 85, 0.16);
+}
+
+.agy-art[data-theme="night"] {
+  --card-border-color: #7c68c4;
+  --card-bg: radial-gradient(circle at 20% 20%, #3c2d6b 0, transparent 40%),
+    linear-gradient(135deg, #1f1b33f5, #282244f5 60%, #1c1830f5);
+  --card-color: #e4dcff;
+  --card-shadow: inset 0 0 14px #523f8c55, 0 6px 18px #0d0a1a88;
+
+  --dot-border-color: #7c68c4;
+  --dot-bg: #241e3d;
+
+  --title-color: #d8cbff;
+  --title-shadow: 0 0 10px #7e60e8;
+
+  --value-bg: linear-gradient(110deg, #9fb0ff, #d59eff, #ffaae5);
+
+  --track-bg: #383059;
+
+  --quota-label-color: #b9addf;
+  --quota-strong-color: #b9addf;
+  --meta-color: #b9addf;
+
+  --tool-border: rgba(124, 102, 196, 0.72);
+  --tool-bg: linear-gradient(145deg, rgba(38, 30, 68, 0.95), rgba(23, 18, 43, 0.93));
+  --tool-color: #e2d9ff;
+  --tool-shadow: 0 4px 12px rgba(10, 7, 22, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  --tool-hover-border: #9f86f0;
+  --tool-hover-bg: linear-gradient(145deg, rgba(52, 41, 92, 0.98), rgba(32, 25, 59, 0.96));
+  --tool-hover-color: #f3eeff;
+  --tool-hover-shadow: 0 6px 16px rgba(10, 7, 24, 0.56), inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  --tool-active-shadow: 0 2px 6px rgba(10, 7, 22, 0.45);
+}

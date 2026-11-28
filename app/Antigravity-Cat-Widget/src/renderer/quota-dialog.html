@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; connect-src 'none'">
+  <title>开启实时额度</title>
+  <link rel="stylesheet" href="quota-dialog.css">
+</head>
+<body>
+  <div class="qd-wrap">
+    <section class="qd-card" role="dialog" aria-modal="true" aria-labelledby="qd-heading">
+      <header class="qd-header">
+        <div class="qd-header-left">
+          <span class="qd-brand"><span class="qd-star">✦</span> 星语猫娘 · 开启实时额度</span>
+          <span class="qd-eye-dots" aria-hidden="true"><i class="dot-gold"></i><i class="dot-pink"></i></span>
+        </div>
+        <button class="qd-close" id="btn-close" type="button" title="关闭 (Esc)" aria-label="关闭">
+          <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
+            <path d="M3.5 3.5l9 9M12.5 3.5l-9 9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </button>
+      </header>
+
+      <div class="qd-body">
+        <div class="qd-hero">
+          <div class="qd-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="21" height="21" fill="none">
+              <path d="M12 3l2.2 5.4L20 10.6l-5.8 2.2L12 18.5l-2.2-5.7L4 10.6l5.8-2.2L12 3z" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"/>
+              <circle cx="18.5" cy="18" r="1.5" fill="currentColor"/>
+            </svg>
+          </div>
+          <div class="qd-hero-text">
+            <h1 id="qd-heading">需要重新打开 Antigravity 以读取实时额度</h1>
+            <div class="qd-tags">
+              <span class="qd-pill">零强杀保护</span>
+              <span class="qd-pill">托盘退出自动接管</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="qd-notice">
+          请先确认当前对话已回复完毕并保存文件。若 Antigravity 开启了「后台运行」缩进右下角托盘，按提示右键托盘退出即可自动带端口重开。
+        </div>
+
+        <div class="qd-options" id="bind-options">
+          <div class="qd-opt qd-opt--primary">
+            <div class="qd-opt-title">
+              <span>重开并设为默认伴随启动</span>
+              <span class="qd-rec">推荐</span>
+            </div>
+            <p>自动更新桌面与开始菜单快捷方式（保留原图标），以后每次打开都自动开启实时额度并拉起猫娘。</p>
+          </div>
+          <div class="qd-opt">
+            <div class="qd-opt-title"><span>仅本次重开</span></div>
+            <p>只为这一次开启实时额度调试端口，不改动现有桌面或开始菜单快捷方式。</p>
+          </div>
+        </div>
+      </div>
+
+      <footer class="qd-actions" id="actions-bind">
+        <button class="qd-btn qd-btn--primary" id="btn-bind" type="button">重开并设为默认伴随启动</button>
+        <button class="qd-btn qd-btn--secondary" id="btn-once" type="button">仅本次重开</button>
+        <button class="qd-btn qd-btn--ghost" id="btn-cancel-bind" type="button">取消</button>
+      </footer>
+
+      <footer class="qd-actions" id="actions-simple" hidden>
+        <button class="qd-btn qd-btn--primary" id="btn-relaunch-only" type="button">立即重开</button>
+        <button class="qd-btn qd-btn--ghost" id="btn-cancel-simple" type="button">取消</button>
+      </footer>
+    </section>
+  </div>
+  <script src="quota-dialog.cjs"></script>
+</body>
+</html>

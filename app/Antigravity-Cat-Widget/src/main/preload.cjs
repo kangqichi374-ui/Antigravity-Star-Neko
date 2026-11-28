@@ -9,6 +9,7 @@ contextBridge.exposeInMainWorld("widgetApi", {
   hit: v => ipcRenderer.send("widget:hit", v),
   audio: v => ipcRenderer.invoke("widget:audio", v),
   importAudio: () => ipcRenderer.invoke("widget:import-audio"),
+  quotaDialogChoice: v => ipcRenderer.send("widget:quota-dialog-result", v),
   subscribe: callback => {
     const h = (_e, data) => callback(data);
     ipcRenderer.on("widget:snapshot", h);
